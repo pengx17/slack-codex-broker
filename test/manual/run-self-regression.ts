@@ -27,6 +27,7 @@ export interface SelfRegressionManifest {
   readonly checkedAt: string;
   readonly command: string;
   readonly sanitizedSourceFiles: readonly string[];
+  readonly manualAction?: string | undefined;
 }
 
 export interface SelfRegressionReport {
@@ -49,6 +50,7 @@ interface CliOptions {
   readonly outputDir?: string | undefined;
   readonly envFile?: string | undefined;
   readonly channel?: string | undefined;
+  readonly manualAction?: string | undefined;
   readonly waitMs: number;
   readonly intervalMs: number;
   readonly json: boolean;
@@ -79,6 +81,7 @@ export async function collectSelfRegressionReport(options: CliOptions, collectOp
     checkedAt,
     command,
     sanitizedSourceFiles: sourceFiles,
+    manualAction: options.manualAction ? sanitizeManualAction(options.manualAction) : undefined,
   };
 
   if (options.platform === "feishu") {
@@ -115,16 +118,46 @@ async function collectFeishuSelfRegressionReport(options: CliOptions, env: Recor
     });
   }
 
+  if (options.mode === "observe" && !options.manualAction?.trim()) {
+    return createReport({
+      platform: "feishu",
+      mode: "observe",
+      manifest,
+      checks: [feishuManualActionCheck(options.manualAction)],
+    });
+  }
+
   const setupEvidence = options.setupEvidenceFile ? await readJsonFile(options.setupEvidenceFile) : undefined;
   const status = options.statusFile ? await readJsonFile(options.statusFile) : await fetchAdminStatusWithRetry(options, fetchFn);
   const report = evaluateFeishuSmokeStatus(status, env, {
     requireSetupEvidence: true,
     setupEvidence,
   });
-  return fromFeishuSmokeReport(report, {
+  const selfRegressionReport = fromFeishuSmokeReport(report, {
     platform: "feishu",
     mode: options.statusFile ? "replay" : "observe",
     manifest,
+  });
+  if (options.mode !== "observe") {
+    return selfRegressionReport;
+  }
+  return createReport({
+    platform: "feishu",
+    mode: "observe",
+    manifest,
+    checks: [feishuManualActionCheck(options.manualAction), ...selfRegressionReport.checks],
+  });
+}
+
+function feishuManualActionCheck(manualAction: string | undefined): SelfRegressionCheck {
+  const sanitized = manualAction ? sanitizeManualAction(manualAction) : "";
+  return booleanCheck({
+    id: "feishu.observe.manual_action_provenance",
+    label: "Feishu observe evidence names the human/browser action that produced inbound work",
+    required: true,
+    passed: Boolean(sanitized),
+    evidence: sanitized ? [`manual_action=${sanitized}`] : ["manual_action=missing"],
+    nextAction: "Rerun Feishu observe with --manual-action describing the controlled @bot, non-@ follow-up, card/file action, or browser/test-user driver run.",
   });
 }
 
@@ -740,7 +773,28 @@ function isSafeSlackChannelInput(channel: string): boolean {
 }
 
 function sanitizeCommand(parts: readonly string[]): string {
-  return parts.map(sanitizeEvidenceText).join(" ");
+  const sanitized: string[] = [];
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index]!;
+    if (part === "--manual-action" || part === "--admin-token") {
+      sanitized.push(part);
+      if (index + 1 < parts.length) {
+        sanitized.push("[redacted]");
+        index += 1;
+      }
+      continue;
+    }
+    if (part.startsWith("--manual-action=")) {
+      sanitized.push("--manual-action=[redacted]");
+      continue;
+    }
+    if (part.startsWith("--admin-token=")) {
+      sanitized.push("--admin-token=[redacted]");
+      continue;
+    }
+    sanitized.push(sanitizeEvidenceText(part));
+  }
+  return sanitized.join(" ");
 }
 
 function sanitizeSourceFile(filePath: string, cwd: string): string {
@@ -758,6 +812,15 @@ function sanitizeEvidenceText(value: string): string {
     .replace(/\bBearer\s+[A-Za-z0-9._-]+/giu, "Bearer [redacted-token]")
     .replace(/(["'])(\/[^"']+)\1/gu, (_match, quote: string, filePath: string) => `${quote}${path.basename(filePath)}${quote}`)
     .replace(/(^|[\s=])\/(?!\/)([^\s'"]+)/gu, (_match, prefix: string, filePathTail: string) => `${prefix}${path.basename(`/${filePathTail}`)}`);
+}
+
+function sanitizeManualAction(value: string): string {
+  return sanitizeEvidenceText(value)
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/giu, "[redacted-email]")
+    .replace(/https?:\/\/\S+/giu, "[redacted-url]")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, 180);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -785,6 +848,7 @@ function parseArgs(argv: readonly string[], env: Record<string, string | undefin
   let outputDir: string | undefined;
   let envFile: string | undefined;
   let channel = env.SLACK_SELF_REGRESSION_CHANNEL;
+  let manualAction = env.FEISHU_SELF_REGRESSION_MANUAL_ACTION;
   let mode: SelfRegressionMode | undefined;
   let waitMs = 0;
   let intervalMs = 2_000;
@@ -827,6 +891,8 @@ function parseArgs(argv: readonly string[], env: Record<string, string | undefin
       envFile = readValue("--env-file");
     } else if (optionName === "--channel") {
       channel = readValue("--channel");
+    } else if (optionName === "--manual-action") {
+      manualAction = readValue("--manual-action");
     } else if (optionName === "--wait-ms") {
       waitMs = readNonNegativeInteger(readValue("--wait-ms"), "--wait-ms");
     } else if (optionName === "--interval-ms") {
@@ -873,6 +939,7 @@ function parseArgs(argv: readonly string[], env: Record<string, string | undefin
     outputDir,
     envFile,
     channel,
+    manualAction,
     waitMs,
     intervalMs,
     json,
@@ -928,7 +995,7 @@ function printUsage(): void {
       "       pnpm manual:self-regression -- --platform slack --drive --channel '#xp-test' [--base-url http://127.0.0.1:3000] [--wait-ms 60000] [--output-dir evidence/self-regression/slack] [--json]",
       "       pnpm manual:self-regression -- --platform slack --replay --status-file admin-status.json [--output-dir evidence/self-regression/slack] [--json]",
       "       pnpm manual:self-regression -- --platform feishu --preflight [--env-file .env] [--output-dir evidence/self-regression/feishu] [--json]",
-      "       pnpm manual:self-regression -- --platform feishu --observe --setup-evidence-file setup.json [--base-url http://127.0.0.1:3000] [--output-dir evidence/self-regression/feishu] [--json]",
+      "       pnpm manual:self-regression -- --platform feishu --observe --manual-action 'operator sent @bot + non-@ follow-up in test group' --setup-evidence-file setup.json [--base-url http://127.0.0.1:3000] [--output-dir evidence/self-regression/feishu] [--json]",
       "       pnpm manual:self-regression -- --platform feishu --replay --status-file admin-status.json --setup-evidence-file setup.json [--output-dir evidence/self-regression/feishu] [--json]",
       "",
       "Writes sanitized self-regression reports and manifests. Secrets are loaded only from env or local env files and are never copied into output bundles.",

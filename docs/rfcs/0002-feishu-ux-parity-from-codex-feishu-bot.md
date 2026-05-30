@@ -395,7 +395,7 @@ Current command shape:
 - `pnpm manual:self-regression -- --platform slack --preflight --env-file .env.local --json`
 - `pnpm manual:self-regression -- --platform slack --drive --channel "$SLACK_SELF_REGRESSION_CHANNEL" --output-dir evidence/self-regression/slack --json`
 - `pnpm manual:self-regression -- --platform feishu --preflight --env-file .env.local --json`
-- `pnpm manual:self-regression -- --platform feishu --observe --setup-evidence-file evidence/feishu-smoke/feishu-setup-evidence.json --output-dir evidence/self-regression/feishu --json`
+- `pnpm manual:self-regression -- --platform feishu --observe --manual-action "operator sent @bot + non-@ follow-up in test group" --setup-evidence-file evidence/feishu-smoke/feishu-setup-evidence.json --output-dir evidence/self-regression/feishu --json`
 - `pnpm manual:self-regression -- --status-file evidence/self-regression/<platform>/admin-status.json --output-dir evidence/self-regression/<platform> --json`
 
 The shared `manual:self-regression` entrypoint is wired for Slack/Feishu
@@ -406,7 +406,10 @@ list channels, the runner may resolve the channel with the bot token, but the
 inbound message still requires a user-capable token that can call
 `chat.postMessage` in the configured test channel. Feishu drive remains
 explicitly blocked until a human/browser/test-user driver exists; use Feishu
-observe mode after the manual group actions until then.
+observe mode after the manual group actions until then. Feishu observe must
+include `--manual-action` or `FEISHU_SELF_REGRESSION_MANUAL_ACTION`; otherwise
+the report fails closed because broad admin logs alone do not prove which
+operator action produced the inbound event.
 
 Automation rules:
 

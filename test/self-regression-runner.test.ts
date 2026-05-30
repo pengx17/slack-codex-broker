@@ -220,6 +220,83 @@ describe("self-regression runner", () => {
     expect(JSON.stringify(report)).not.toContain("secret-value");
   });
 
+  it("fails Feishu observe when the manual action provenance is missing", async () => {
+    const report = await collectSelfRegressionReport(
+      {
+        platform: "feishu",
+        mode: "observe",
+        baseUrl: "http://127.0.0.1:3000",
+        setupEvidenceFile: "evidence/feishu-smoke/feishu-setup-evidence.json",
+        waitMs: 0,
+        intervalMs: 1000,
+        json: true,
+      },
+      {
+        env: {
+          FEISHU_ENABLED: "true",
+        },
+        now: new Date("2026-05-30T00:00:00.000Z"),
+      },
+    );
+
+    expect(report.ok).toBe(false);
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "feishu.observe.manual_action_provenance",
+          status: "fail",
+          evidence: ["manual_action=missing"],
+        }),
+      ]),
+    );
+  });
+
+  it("records sanitized Feishu observe manual action provenance", async () => {
+    const report = await collectSelfRegressionReport(
+      {
+        platform: "feishu",
+        mode: "observe",
+        baseUrl: "http://127.0.0.1:3000",
+        statusFile: "evidence/feishu-smoke/admin-status.json",
+        setupEvidenceFile: "evidence/feishu-smoke/feishu-setup-evidence.json",
+        manualAction: "operator@example.com used https://feishu.example.test to send @bot plus non-@ follow-up",
+        waitMs: 0,
+        intervalMs: 1000,
+        json: true,
+      },
+      {
+        argv: ["--platform", "feishu", "--observe", "--manual-action", "operator@example.com used https://feishu.example.test to send @bot plus non-@ follow-up", "--status-file", "evidence/feishu-smoke/admin-status.json", "--setup-evidence-file", "evidence/feishu-smoke/feishu-setup-evidence.json", "--json"],
+        env: {
+          FEISHU_ENABLED: "true",
+          FEISHU_APP_ID: "set",
+          FEISHU_APP_SECRET: "set",
+          FEISHU_BOT_OPEN_ID: "set",
+          FEISHU_DOMAIN: "feishu",
+          FEISHU_API_BASE_URL: "https://open.feishu.cn/open-apis",
+          FEISHU_GROUP_MESSAGE_MODE: "all",
+          FEISHU_STARTUP_REQUIRED: "true",
+          LOG_RAW_FEISHU_EVENTS: "false",
+        },
+        now: new Date("2026-05-30T00:00:00.000Z"),
+      },
+    );
+
+    expect(report.ok).toBe(true);
+    expect(report.manifest.manualAction).toBe("[redacted-email] used [redacted-url] to send @bot plus non-@ follow-up");
+    expect(report.manifest.command).toContain("--manual-action [redacted]");
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "feishu.observe.manual_action_provenance",
+          status: "pass",
+          evidence: ["manual_action=[redacted-email] used [redacted-url] to send @bot plus non-@ follow-up"],
+        }),
+      ]),
+    );
+    expect(JSON.stringify(report)).not.toContain("operator@example.com");
+    expect(JSON.stringify(report)).not.toContain("feishu.example.test");
+  });
+
   it("drives Slack by resolving a channel label, posting a mention, and observing admin status", async () => {
     const calls: string[] = [];
     const fetch = async (url: string | URL, init?: RequestInit) => {
