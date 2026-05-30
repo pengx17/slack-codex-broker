@@ -1,3 +1,4 @@
+import type { ChatTurnProjection } from "./chat-turn-projection.js";
 import type { ChatAttachment, ChatInputMessage, ChatOutboundFile, ChatOutboundMessage, ChatPlatform, ChatPostedMessage, ChatThreadMessage, ChatThreadPage, ChatThreadQuery, ChatThreadTarget, ChatTurnState, ChatUploadedFile, ChatUserIdentity } from "./chat-types.js";
 
 export interface ChatPlatformHandlers {
@@ -15,6 +16,7 @@ export interface ChatPlatformAdapter {
   listThreadMessagePage?(query: ChatThreadQuery): Promise<ChatThreadPage>;
   postThreadMessage(target: ChatThreadTarget, message: ChatOutboundMessage): Promise<ChatPostedMessage>;
   postThreadState?(target: ChatThreadTarget, state: ChatTurnState): Promise<void>;
+  postThreadProjection?(target: ChatThreadTarget, projection: ChatTurnProjection): Promise<void>;
   uploadThreadFile?(target: ChatThreadTarget, file: ChatOutboundFile): Promise<ChatUploadedFile>;
   downloadAttachment?(attachment: ChatAttachment): Promise<string>;
   getUserIdentity(userId: string): Promise<ChatUserIdentity | null>;

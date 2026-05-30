@@ -7,6 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
 
 import { configureLogger, flushLogger } from "../src/logger.js";
+import type { ChatTurnProjection } from "../src/services/chat/chat-turn-projection.js";
 import type { ChatAttachment, ChatInputMessage, ChatOutboundFile, ChatPostedMessage, ChatThreadMessage, ChatThreadPage, ChatThreadQuery, ChatThreadTarget, ChatUploadedFile, ChatUserIdentity } from "../src/services/chat/chat-types.js";
 import type { ChatPlatformAdapter, ChatPlatformHandlers } from "../src/services/chat/chat-platform-adapter.js";
 import { FeishuCodexBridge } from "../src/services/feishu/feishu-codex-bridge.js";
@@ -1136,6 +1137,143 @@ describe("FeishuCodexBridge", () => {
         },
       },
     ]);
+  });
+
+  it("projects Feishu progress messages into the active state card instead of posting noisy replies", async () => {
+    const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), "feishu-codex-progress-projection-"));
+    const logDir = path.join(dataRoot, "logs");
+    configureLogger({
+      logDir,
+      level: "debug",
+      rawSlackEvents: false,
+      rawFeishuEvents: false,
+      rawCodexRpc: false,
+      rawHttpRequests: false,
+    });
+    const sessions = new SessionManager({
+      stateStore: new StateStore(path.join(dataRoot, "state"), path.join(dataRoot, "sessions")),
+      sessionsRoot: path.join(dataRoot, "sessions"),
+    });
+    await sessions.load();
+    const adapter = new FakeFeishuAdapter();
+    const bridge = new FeishuCodexBridge({
+      sessions,
+      adapter,
+      codex: new FakeCodex() as never,
+      groupMessageMode: "all",
+    });
+
+    await bridge.postChatMessage({
+      conversationId: "oc_group",
+      rootMessageId: "om_root",
+      text: "tool: exec_command\npnpm test",
+      kind: "progress",
+    });
+    await flushLogger();
+
+    expect(adapter.postedMessages).toEqual([]);
+    expect(adapter.postedProjections).toEqual([
+      {
+        target: {
+          platform: "feishu",
+          conversationId: "oc_group",
+          rootMessageId: "om_root",
+        },
+        projection: expect.objectContaining({
+          status: "running_tool",
+          slots: [
+            expect.objectContaining({
+              kind: "tool",
+              title: "Tool: exec_command",
+            }),
+          ],
+        }),
+      },
+    ]);
+    const logs = await readJsonl(path.join(logDir, "broker.jsonl"));
+    expect(logs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message: "chat.outbound.posted",
+          meta: expect.objectContaining({
+            platform: "feishu",
+            messageId: "state",
+            format: "card",
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("keeps Feishu final replies readable when state-card projection fails", async () => {
+    const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), "feishu-codex-final-projection-fail-"));
+    const logDir = path.join(dataRoot, "logs");
+    configureLogger({
+      logDir,
+      level: "debug",
+      rawSlackEvents: false,
+      rawFeishuEvents: false,
+      rawCodexRpc: false,
+      rawHttpRequests: false,
+    });
+    const sessions = new SessionManager({
+      stateStore: new StateStore(path.join(dataRoot, "state"), path.join(dataRoot, "sessions")),
+      sessionsRoot: path.join(dataRoot, "sessions"),
+    });
+    await sessions.load();
+    const adapter = new FakeFeishuAdapter();
+    adapter.projectionError = Object.assign(new Error("card expired"), {
+      statusCode: 404,
+    });
+    const bridge = new FeishuCodexBridge({
+      sessions,
+      adapter,
+      codex: new FakeCodex() as never,
+      groupMessageMode: "all",
+    });
+
+    await expect(
+      bridge.postChatMessage({
+        conversationId: "oc_group",
+        rootMessageId: "om_root",
+        text: "Final answer is still visible.",
+        kind: "final",
+      }),
+    ).resolves.toMatchObject({
+      messageId: "om_reply",
+    });
+    await flushLogger();
+
+    expect(adapter.postedMessages).toEqual([
+      expect.objectContaining({
+        message: expect.objectContaining({
+          text: "Final answer is still visible.",
+        }),
+      }),
+    ]);
+    expect(adapter.postedProjections).toHaveLength(1);
+    const logs = await readJsonl(path.join(logDir, "broker.jsonl"));
+    expect(logs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message: "chat.outbound.posted",
+          meta: expect.objectContaining({
+            platform: "feishu",
+            messageId: "om_reply",
+            format: "card",
+          }),
+        }),
+        expect.objectContaining({
+          level: "warn",
+          message: "chat.outbound.failed",
+          meta: expect.objectContaining({
+            platform: "feishu",
+            format: "card",
+            statusCode: 404,
+          }),
+        }),
+      ]),
+    );
   });
 
   it("confirms Feishu co-authors through a card callback before resolving commit trailers", async () => {
@@ -2600,6 +2738,7 @@ class FakeFeishuAdapter implements ChatPlatformAdapter {
   handlers: ChatPlatformHandlers | undefined;
   readonly postedMessages: unknown[] = [];
   readonly postedStates: unknown[] = [];
+  readonly postedProjections: unknown[] = [];
   readonly uploadedFiles: unknown[] = [];
   readonly downloadedAttachments: unknown[] = [];
   readonly historyQueries: unknown[] = [];
@@ -2607,6 +2746,7 @@ class FakeFeishuAdapter implements ChatPlatformAdapter {
   historyPage: ChatThreadPage | undefined;
   uploadKind: ChatUploadedFile["kind"];
   postError: unknown;
+  projectionError: unknown;
   postedMessageId: string | undefined = "om_reply";
   postDelayMs = 0;
   activePosts = 0;
@@ -2671,6 +2811,13 @@ class FakeFeishuAdapter implements ChatPlatformAdapter {
 
   async postThreadState(target: ChatThreadTarget, state: unknown): Promise<void> {
     this.postedStates.push({ target, state });
+  }
+
+  async postThreadProjection(target: ChatThreadTarget, projection: ChatTurnProjection): Promise<void> {
+    this.postedProjections.push({ target, projection });
+    if (this.projectionError) {
+      throw this.projectionError;
+    }
   }
 
   async uploadThreadFile(target: ChatThreadTarget, file: ChatOutboundFile): Promise<ChatUploadedFile> {

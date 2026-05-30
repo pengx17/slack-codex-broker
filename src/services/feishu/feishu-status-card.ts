@@ -24,6 +24,19 @@ export function createFeishuTurnStateCard(projection: ChatTurnProjection): JsonL
     });
   }
 
+  for (const slot of projection.slots ?? []) {
+    elements.push({
+      tag: "hr",
+    });
+    elements.push({
+      tag: "div",
+      text: {
+        tag: "lark_md",
+        content: feishuProjectionSlotMarkdown(slot),
+      },
+    });
+  }
+
   return {
     config: {
       wide_screen_mode: true,
@@ -37,6 +50,28 @@ export function createFeishuTurnStateCard(projection: ChatTurnProjection): JsonL
     },
     elements,
   };
+}
+
+function feishuProjectionSlotMarkdown(slot: NonNullable<ChatTurnProjection["slots"]>[number]): string {
+  const title = `**${slot.title}**`;
+  const body = slot.body?.trim();
+  if (!body) {
+    return title;
+  }
+
+  if (slot.kind === "tool") {
+    return `${title}\n${truncateFeishuSlotBody(body)}`;
+  }
+
+  return `${title}\n${body}`;
+}
+
+function truncateFeishuSlotBody(body: string): string {
+  const normalized = body.trim();
+  if (normalized.length <= 700) {
+    return normalized;
+  }
+  return `${normalized.slice(0, 700).trimEnd()}\n...`;
 }
 
 function feishuCardTemplateFor(status: ChatTurnProjectionStatus): string {

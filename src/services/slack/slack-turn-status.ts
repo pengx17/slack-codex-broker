@@ -6,7 +6,9 @@ export function createSlackTurnStatusText(projection: ChatTurnProjection): strin
   }
 
   const status = slackStatusTextFor(projection.status);
-  return projection.reason?.trim() ? `${status} ${projection.reason.trim()}` : status;
+  const slot = projection.slots?.[0];
+  const detail = projection.reason?.trim() || slot?.title;
+  return detail ? `${status} ${detail}` : status;
 }
 
 function slackStatusTextFor(status: ChatTurnProjectionStatus): string {

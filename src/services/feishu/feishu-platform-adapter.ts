@@ -5,7 +5,7 @@ import * as Lark from "@larksuiteoapi/node-sdk";
 
 import { logger } from "../../logger.js";
 import type { ChatPlatformAdapter, ChatPlatformHandlers } from "../chat/chat-platform-adapter.js";
-import { createChatTurnProjection } from "../chat/chat-turn-projection.js";
+import { createChatTurnProjection, type ChatTurnProjection } from "../chat/chat-turn-projection.js";
 import {
   CHAT_FILE_SOURCE_REQUIREMENT_MESSAGE,
   CHAT_INLINE_FILE_CONTENT_REQUIREMENT_MESSAGE,
@@ -257,7 +257,11 @@ export class FeishuPlatformAdapter implements ChatPlatformAdapter {
   }
 
   async postThreadState(target: ChatThreadTarget, state: ChatTurnState): Promise<void> {
-    await this.#scheduleStateCardWrite(target, state);
+    await this.postThreadProjection(target, createChatTurnProjection(target, state));
+  }
+
+  async postThreadProjection(target: ChatThreadTarget, projection: ChatTurnProjection): Promise<void> {
+    await this.#scheduleStateCardWrite(target, projection);
   }
 
   async uploadThreadFile(target: ChatThreadTarget, file: ChatOutboundFile): Promise<ChatUploadedFile> {
@@ -391,7 +395,7 @@ export class FeishuPlatformAdapter implements ChatPlatformAdapter {
     }
   }
 
-  #scheduleStateCardWrite(target: ChatThreadTarget, state: ChatTurnState): Promise<void> {
+  #scheduleStateCardWrite(target: ChatThreadTarget, projection: ChatTurnProjection): Promise<void> {
     const stateKey = feishuStateCardKey(target);
     let pending = this.#pendingStateUpdates.get(stateKey);
     if (pending?.timer) {
@@ -401,14 +405,14 @@ export class FeishuPlatformAdapter implements ChatPlatformAdapter {
     if (!pending) {
       pending = {
         target,
-        state,
+        projection,
         waiters: [],
       };
       this.#pendingStateUpdates.set(stateKey, pending);
     }
 
     pending.target = target;
-    pending.state = state;
+    pending.projection = projection;
     const promise = new Promise<void>((resolve, reject) => {
       pending!.waiters.push({ resolve, reject });
     });
@@ -434,7 +438,7 @@ export class FeishuPlatformAdapter implements ChatPlatformAdapter {
     pending.timer = undefined;
     try {
       await this.#runWithStateQueue(pending.target, async () => {
-        await this.#writeThreadStateCard(pending.target, pending.state);
+        await this.#writeThreadStateCard(pending.target, pending.projection);
       });
       for (const waiter of pending.waiters) {
         waiter.resolve();
@@ -446,8 +450,7 @@ export class FeishuPlatformAdapter implements ChatPlatformAdapter {
     }
   }
 
-  async #writeThreadStateCard(target: ChatThreadTarget, state: ChatTurnState): Promise<void> {
-    const projection = createChatTurnProjection(target, state);
+  async #writeThreadStateCard(target: ChatThreadTarget, projection: ChatTurnProjection): Promise<void> {
     const card = createFeishuTurnStateCard(projection);
     const hash = stableFeishuCardHash(card);
     const stateKey = feishuStateCardKey(target);
@@ -510,7 +513,7 @@ interface FeishuStateCardRecord {
 
 interface FeishuPendingStateUpdate {
   target: ChatThreadTarget;
-  state: ChatTurnState;
+  projection: ChatTurnProjection;
   timer?: ReturnType<typeof setTimeout> | undefined;
   readonly waiters: Array<{
     readonly resolve: () => void;

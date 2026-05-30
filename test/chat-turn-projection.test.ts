@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createChatTurnProjection } from "../src/services/chat/chat-turn-projection.js";
+import { createChatTurnProjection, createChatTurnProjectionFromOutboundMessage } from "../src/services/chat/chat-turn-projection.js";
 import { createFeishuTurnStateCard } from "../src/services/feishu/feishu-status-card.js";
 import { createSlackTurnStatusText } from "../src/services/slack/slack-turn-status.js";
 
@@ -71,5 +71,65 @@ describe("chat turn projection", () => {
     );
     expect(typeof feishuCard).toBe("object");
     expect(feishuCard).not.toBe(slackStatus);
+  });
+
+  it("projects progress, tool, and final messages into stable logical slots", () => {
+    const target = {
+      platform: "feishu" as const,
+      conversationId: "oc_group",
+      rootMessageId: "om_root",
+    };
+
+    expect(
+      createChatTurnProjectionFromOutboundMessage(target, {
+        text: "Thinking through the failing tests",
+        kind: "progress",
+      }),
+    ).toMatchObject({
+      status: "thinking",
+      summary: "Codex shared a progress update.",
+      slots: [
+        {
+          kind: "commentary",
+          title: "Progress update",
+          body: "Thinking through the failing tests",
+        },
+      ],
+    });
+
+    expect(
+      createChatTurnProjectionFromOutboundMessage(target, {
+        text: "tool: exec_command\npnpm test",
+        kind: "progress",
+      }),
+    ).toMatchObject({
+      status: "running_tool",
+      summary: "Codex is using a tool to make progress.",
+      slots: [
+        {
+          kind: "tool",
+          title: "Tool: exec_command",
+          metadata: {
+            toolName: "exec_command",
+          },
+        },
+      ],
+    });
+
+    expect(
+      createChatTurnProjectionFromOutboundMessage(target, {
+        text: "All done",
+        kind: "final",
+      }),
+    ).toMatchObject({
+      status: "final",
+      slots: [
+        {
+          kind: "final",
+          title: "Final answer",
+          body: "All done",
+        },
+      ],
+    });
   });
 });

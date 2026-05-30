@@ -135,6 +135,59 @@ describe("FeishuPlatformAdapter", () => {
     });
   });
 
+  it("renders shared progress projection slots inside the Feishu state card", async () => {
+    const calls: unknown[] = [];
+    const adapter = new FeishuPlatformAdapter({
+      appId: "cli-test",
+      appSecret: "secret-test",
+      api: createFakeApi(calls),
+      wsClient: new FakeWsClient(),
+      stateCardPatchDebounceMs: 0,
+    });
+    const target = {
+      platform: "feishu" as const,
+      conversationId: "oc_group",
+      rootMessageId: "om_root",
+    };
+
+    await adapter.postThreadProjection(target, {
+      target,
+      status: "running_tool",
+      title: "Codex is running a tool",
+      summary: "Codex is using a tool to make progress.",
+      slots: [
+        {
+          kind: "tool",
+          title: "Tool: exec_command",
+          body: `tool: exec_command\n${"x".repeat(900)}`,
+          metadata: {
+            toolName: "exec_command",
+          },
+        },
+      ],
+    });
+
+    expect(calls).toEqual([
+      {
+        operation: "replyMessage",
+        options: expect.objectContaining({
+          msgType: "interactive",
+          content: expect.objectContaining({
+            elements: expect.arrayContaining([
+              expect.objectContaining({
+                tag: "div",
+                text: expect.objectContaining({
+                  content: expect.stringContaining("**Tool: exec_command**"),
+                }),
+              }),
+            ]),
+          }),
+        }),
+      },
+    ]);
+    expect(JSON.stringify(calls)).toContain("...");
+  });
+
   it("debounces rapid Feishu turn-state patches to the latest visible card state", async () => {
     vi.useFakeTimers();
     const calls: unknown[] = [];

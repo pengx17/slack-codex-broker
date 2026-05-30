@@ -2,6 +2,7 @@
 import { logger } from "../../logger.js";
 import type { ChatAttachment, ChatInputMessage, ChatOutboundFile, ChatOutboundMessage, ChatPostedMessage, ChatThreadPage, ChatThreadMessage, ChatThreadTarget, ChatUploadedFile } from "../chat/chat-types.js";
 import type { ChatPlatformAdapter } from "../chat/chat-platform-adapter.js";
+import { createChatTurnProjectionFromOutboundMessage } from "../chat/chat-turn-projection.js";
 import type { CodexBroker } from "../codex/codex-broker.js";
 import type { CodexInputItem } from "../codex/app-server-client.js";
 import { type ChatSessionCoordinates } from "../chat/chat-session-key.js";
@@ -89,6 +90,33 @@ export class FeishuCodexBridge {
     };
 
     return await this.#runWithOutboundQueue(target, async () => {
+      const projection = createChatTurnProjectionFromOutboundMessage(target, {
+        text: options.text,
+        format: options.format,
+        kind: options.kind,
+        reason: options.reason,
+        richText: options.richText,
+        card: options.card,
+      });
+      if (options.kind === "progress" && this.#adapter.postThreadProjection) {
+        await this.#adapter.postThreadProjection(target, projection);
+        logger.info("chat.outbound.posted", {
+          platform: "feishu",
+          sessionKey: this.#sessionKeyFor(target),
+          conversationId: options.conversationId,
+          rootMessageId: options.rootMessageId,
+          messageId: "state",
+          format: "card",
+          durationMs: 0,
+        });
+        return {
+          platform: "feishu",
+          conversationId: target.conversationId,
+          rootMessageId: target.rootMessageId,
+          messageId: "state",
+        };
+      }
+
       const chunks = chunkFeishuOutboundText(options.text);
       let posted: ChatPostedMessage | undefined;
 
@@ -103,6 +131,32 @@ export class FeishuCodexBridge {
 
       if (!posted) {
         throw new Error("Feishu outbound message did not produce a post result");
+      }
+
+      if (options.kind && this.#adapter.postThreadProjection) {
+        try {
+          await this.#adapter.postThreadProjection(target, projection);
+          logger.info("chat.outbound.posted", {
+            platform: "feishu",
+            sessionKey: this.#sessionKeyFor(target),
+            conversationId: options.conversationId,
+            rootMessageId: options.rootMessageId,
+            messageId: "state",
+            format: "card",
+            durationMs: 0,
+          });
+        } catch (error) {
+          logger.warn("chat.outbound.failed", {
+            platform: "feishu",
+            sessionKey: this.#sessionKeyFor(target),
+            conversationId: options.conversationId,
+            rootMessageId: options.rootMessageId,
+            format: "card",
+            errorClass: error instanceof Error ? error.name : "Error",
+            statusCode: statusCodeFromError(error) ?? "unknown",
+            attempt: 1,
+          });
+        }
       }
 
       return posted;
