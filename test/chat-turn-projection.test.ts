@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createChatTurnProjection, createChatTurnProjectionFromOutboundMessage } from "../src/services/chat/chat-turn-projection.js";
+import { createChatTurnProjection, createChatTurnProjectionFromOutboundMessage, createChatTurnProjectionFromUploadedFile } from "../src/services/chat/chat-turn-projection.js";
 import { createFeishuTurnStateCard } from "../src/services/feishu/feishu-status-card.js";
 import { createSlackTurnStatusText } from "../src/services/slack/slack-turn-status.js";
 
@@ -128,6 +128,50 @@ describe("chat turn projection", () => {
           kind: "final",
           title: "Final answer",
           body: "All done",
+        },
+      ],
+    });
+  });
+
+  it("projects uploaded files into platform-neutral artifact slots", () => {
+    const target = {
+      platform: "feishu" as const,
+      conversationId: "oc_group",
+      rootMessageId: "om_root",
+    };
+
+    expect(
+      createChatTurnProjectionFromUploadedFile(
+        target,
+        {
+          filename: "report.pdf",
+          altText: "weekly report",
+          contentType: "application/pdf",
+        },
+        {
+          platform: "feishu",
+          fileId: "file_uploaded",
+          kind: "file",
+          name: "report.pdf",
+          mimetype: "application/pdf",
+          size: 2048,
+        },
+      ),
+    ).toMatchObject({
+      status: "thinking",
+      title: "Codex shared an artifact",
+      slots: [
+        {
+          kind: "artifact",
+          title: "Artifact: report.pdf",
+          body: "Kind: file\nName: report.pdf\nType: application/pdf\nSize: 2.0 KiB\nAlt text: weekly report",
+          metadata: {
+            fileId: "file_uploaded",
+            artifactKind: "file",
+            name: "report.pdf",
+            mimetype: "application/pdf",
+            size: 2048,
+          },
         },
       ],
     });

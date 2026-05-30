@@ -1,4 +1,4 @@
-import type { ChatOutboundMessage, ChatThreadTarget, ChatTurnState } from "./chat-types.js";
+import type { ChatOutboundFile, ChatOutboundMessage, ChatThreadTarget, ChatTurnState, ChatUploadedFile } from "./chat-types.js";
 
 export type ChatTurnProjectionStatus = "queued" | "thinking" | "running_tool" | "waiting" | "blocked" | "final" | "failed";
 export type ChatTurnProjectionSlotKind = "commentary" | "tool" | "final" | "artifact";
@@ -40,6 +40,17 @@ export function createChatTurnProjectionFromOutboundMessage(target: ChatThreadTa
     summary: chatTurnProjectionSummaryForOutboundMessage(status, message),
     reason: message.reason,
     slots: slot ? [slot] : undefined,
+  };
+}
+
+export function createChatTurnProjectionFromUploadedFile(target: ChatThreadTarget, file: ChatOutboundFile, uploaded: ChatUploadedFile): ChatTurnProjection {
+  const slot = createArtifactSlot(file, uploaded);
+  return {
+    target,
+    status: "thinking",
+    title: "Codex shared an artifact",
+    summary: "A file or artifact was uploaded to the chat.",
+    slots: [slot],
   };
 }
 
@@ -120,6 +131,57 @@ function createProgressSlot(text: string): ChatTurnProjectionSlot {
     title: "Progress update",
     body: text,
   };
+}
+
+function createArtifactSlot(file: ChatOutboundFile, uploaded: ChatUploadedFile): ChatTurnProjectionSlot {
+  const displayName = uploaded.title?.trim() || uploaded.name?.trim() || file.title?.trim() || file.filename?.trim() || "Uploaded artifact";
+  const metadata = compactMetadata({
+    fileId: uploaded.fileId,
+    artifactKind: uploaded.kind,
+    name: uploaded.name,
+    mimetype: uploaded.mimetype,
+    size: uploaded.size,
+  });
+  return {
+    kind: "artifact",
+    title: `Artifact: ${displayName}`,
+    body: artifactSlotBody(file, uploaded),
+    metadata,
+  };
+}
+
+function artifactSlotBody(file: ChatOutboundFile, uploaded: ChatUploadedFile): string {
+  const lines = [
+    uploaded.kind ? `Kind: ${uploaded.kind}` : undefined,
+    uploaded.name ? `Name: ${uploaded.name}` : undefined,
+    uploaded.mimetype ? `Type: ${uploaded.mimetype}` : undefined,
+    uploaded.size != null ? `Size: ${formatByteSize(uploaded.size)}` : undefined,
+    uploaded.permalink ? `Link: ${uploaded.permalink}` : undefined,
+    file.altText?.trim() ? `Alt text: ${file.altText.trim()}` : undefined,
+  ].filter((line): line is string => Boolean(line));
+  return lines.join("\n");
+}
+
+function compactMetadata(values: Readonly<Record<string, string | number | boolean | undefined>>): Readonly<Record<string, string | number | boolean>> {
+  return Object.fromEntries(Object.entries(values).filter((entry): entry is [string, string | number | boolean] => entry[1] != null && entry[1] !== ""));
+}
+
+function formatByteSize(size: number): string {
+  if (!Number.isFinite(size) || size < 0) {
+    return "unknown";
+  }
+  if (size < 1024) {
+    return `${size} B`;
+  }
+  const kib = size / 1024;
+  if (kib < 1024) {
+    return `${formatDecimal(kib)} KiB`;
+  }
+  return `${formatDecimal(kib / 1024)} MiB`;
+}
+
+function formatDecimal(value: number): string {
+  return value >= 10 ? value.toFixed(0) : value.toFixed(1);
 }
 
 function parseToolName(text: string): string | undefined {

@@ -2,7 +2,7 @@
 import { logger } from "../../logger.js";
 import type { ChatAttachment, ChatInputMessage, ChatOutboundFile, ChatOutboundMessage, ChatPostedMessage, ChatThreadPage, ChatThreadMessage, ChatThreadTarget, ChatUploadedFile } from "../chat/chat-types.js";
 import type { ChatPlatformAdapter } from "../chat/chat-platform-adapter.js";
-import { createChatTurnProjectionFromOutboundMessage } from "../chat/chat-turn-projection.js";
+import { createChatTurnProjectionFromOutboundMessage, createChatTurnProjectionFromUploadedFile } from "../chat/chat-turn-projection.js";
 import type { CodexBroker } from "../codex/codex-broker.js";
 import type { CodexInputItem } from "../codex/app-server-client.js";
 import { type ChatSessionCoordinates } from "../chat/chat-session-key.js";
@@ -265,6 +265,47 @@ export class FeishuCodexBridge {
           format: uploaded.kind ?? (uploaded.mimetype?.startsWith("image/") ? "image" : "file"),
           durationMs: 0,
         });
+        if (this.#adapter.postThreadProjection) {
+          try {
+            await this.#adapter.postThreadProjection(
+              target,
+              createChatTurnProjectionFromUploadedFile(
+                target,
+                {
+                  filePath: options.filePath,
+                  contentBase64: options.contentBase64,
+                  filename: options.filename,
+                  title: options.title,
+                  initialComment: options.initialComment,
+                  altText: options.altText,
+                  snippetType: options.snippetType,
+                  contentType: options.contentType,
+                },
+                uploaded,
+              ),
+            );
+            logger.info("chat.outbound.posted", {
+              platform: "feishu",
+              sessionKey: this.#sessionKeyFor(target),
+              conversationId: options.conversationId,
+              rootMessageId: options.rootMessageId,
+              messageId: "state",
+              format: "card",
+              durationMs: 0,
+            });
+          } catch (error) {
+            logger.warn("chat.outbound.failed", {
+              platform: "feishu",
+              sessionKey: this.#sessionKeyFor(target),
+              conversationId: options.conversationId,
+              rootMessageId: options.rootMessageId,
+              format: "card",
+              errorClass: error instanceof Error ? error.name : "Error",
+              statusCode: statusCodeFromError(error) ?? "unknown",
+              attempt: 1,
+            });
+          }
+        }
         return uploaded;
       } catch (error) {
         logger.warn("chat.outbound.failed", {

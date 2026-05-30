@@ -188,6 +188,60 @@ describe("FeishuPlatformAdapter", () => {
     expect(JSON.stringify(calls)).toContain("...");
   });
 
+  it("renders shared artifact projection slots inside the Feishu state card", async () => {
+    const calls: unknown[] = [];
+    const adapter = new FeishuPlatformAdapter({
+      appId: "cli-test",
+      appSecret: "secret-test",
+      api: createFakeApi(calls),
+      wsClient: new FakeWsClient(),
+      stateCardPatchDebounceMs: 0,
+    });
+    const target = {
+      platform: "feishu" as const,
+      conversationId: "oc_group",
+      rootMessageId: "om_root",
+    };
+
+    await adapter.postThreadProjection(target, {
+      target,
+      status: "thinking",
+      title: "Codex shared an artifact",
+      summary: "A file or artifact was uploaded to the chat.",
+      slots: [
+        {
+          kind: "artifact",
+          title: "Artifact: report.pdf",
+          body: "Kind: file\nName: report.pdf\nType: application/pdf\nSize: 2.0 KiB",
+          metadata: {
+            fileId: "file_uploaded",
+            artifactKind: "file",
+          },
+        },
+      ],
+    });
+
+    expect(calls).toEqual([
+      {
+        operation: "replyMessage",
+        options: expect.objectContaining({
+          msgType: "interactive",
+          content: expect.objectContaining({
+            elements: expect.arrayContaining([
+              expect.objectContaining({
+                tag: "div",
+                text: expect.objectContaining({
+                  content: expect.stringContaining("**Artifact: report.pdf**"),
+                }),
+              }),
+            ]),
+          }),
+        }),
+      },
+    ]);
+    expect(JSON.stringify(calls)).toContain("Kind: file");
+  });
+
   it("debounces rapid Feishu turn-state patches to the latest visible card state", async () => {
     vi.useFakeTimers();
     const calls: unknown[] = [];

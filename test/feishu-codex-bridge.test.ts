@@ -940,6 +940,29 @@ describe("FeishuCodexBridge", () => {
         },
       },
     ]);
+    expect(adapter.postedProjections).toEqual([
+      {
+        target: {
+          platform: "feishu",
+          conversationId: "oc_group",
+          rootMessageId: "om_root",
+        },
+        projection: expect.objectContaining({
+          title: "Codex shared an artifact",
+          slots: [
+            expect.objectContaining({
+              kind: "artifact",
+              title: "Artifact: report.pdf",
+              metadata: expect.objectContaining({
+                fileId: "file_uploaded",
+                name: "report.pdf",
+                mimetype: "application/pdf",
+              }),
+            }),
+          ],
+        }),
+      },
+    ]);
     const logs = await readJsonl(path.join(logDir, "broker.jsonl"));
     expect(logs).toEqual(
       expect.arrayContaining([
@@ -952,6 +975,83 @@ describe("FeishuCodexBridge", () => {
             rootMessageId: "om_root",
             fileId: "file_uploaded",
             format: "file",
+          }),
+        }),
+        expect.objectContaining({
+          message: "chat.outbound.posted",
+          meta: expect.objectContaining({
+            platform: "feishu",
+            sessionKey: "feishu:b2NfZ3JvdXA:b21fcm9vdA",
+            conversationId: "oc_group",
+            rootMessageId: "om_root",
+            messageId: "state",
+            format: "card",
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("keeps Feishu file uploads successful when artifact card projection fails", async () => {
+    const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), "feishu-codex-upload-projection-fail-"));
+    const logDir = path.join(dataRoot, "logs");
+    configureLogger({
+      logDir,
+      level: "debug",
+      rawSlackEvents: false,
+      rawFeishuEvents: false,
+      rawCodexRpc: false,
+      rawHttpRequests: false,
+    });
+    const sessions = new SessionManager({
+      stateStore: new StateStore(path.join(dataRoot, "state"), path.join(dataRoot, "sessions")),
+      sessionsRoot: path.join(dataRoot, "sessions"),
+    });
+    await sessions.load();
+    const adapter = new FakeFeishuAdapter();
+    adapter.projectionError = Object.assign(new Error("card expired"), {
+      statusCode: 404,
+    });
+    const bridge = new FeishuCodexBridge({
+      sessions,
+      adapter,
+      codex: new FakeCodex() as never,
+      groupMessageMode: "all",
+    });
+
+    await expect(
+      bridge.postChatFile({
+        conversationId: "oc_group",
+        rootMessageId: "om_root",
+        contentBase64: Buffer.from("pdf").toString("base64"),
+        filename: "report.pdf",
+        contentType: "application/pdf",
+      }),
+    ).resolves.toMatchObject({
+      fileId: "file_uploaded",
+    });
+    await flushLogger();
+
+    expect(adapter.uploadedFiles).toHaveLength(1);
+    expect(adapter.postedProjections).toHaveLength(1);
+    const logs = await readJsonl(path.join(logDir, "broker.jsonl"));
+    expect(logs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message: "chat.outbound.posted",
+          meta: expect.objectContaining({
+            platform: "feishu",
+            fileId: "file_uploaded",
+            format: "file",
+          }),
+        }),
+        expect.objectContaining({
+          level: "warn",
+          message: "chat.outbound.failed",
+          meta: expect.objectContaining({
+            platform: "feishu",
+            format: "card",
+            statusCode: 404,
           }),
         }),
       ]),
