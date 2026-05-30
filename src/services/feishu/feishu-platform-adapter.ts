@@ -5,6 +5,7 @@ import * as Lark from "@larksuiteoapi/node-sdk";
 
 import { logger } from "../../logger.js";
 import type { ChatPlatformAdapter, ChatPlatformHandlers } from "../chat/chat-platform-adapter.js";
+import { createChatTurnProjection } from "../chat/chat-turn-projection.js";
 import {
   CHAT_FILE_SOURCE_REQUIREMENT_MESSAGE,
   CHAT_INLINE_FILE_CONTENT_REQUIREMENT_MESSAGE,
@@ -24,6 +25,7 @@ import {
 import type { JsonLike } from "../../types.js";
 import { FeishuApi, type FeishuMessageData, createFeishuTextContent, feishuSdkDomainFromApiBaseUrl } from "./feishu-api.js";
 import { type FeishuBotIdentity, routeFeishuReceiveMessageEvent } from "./feishu-event-parser.js";
+import { createFeishuTurnStateCard } from "./feishu-status-card.js";
 
 interface FeishuWsClientLike {
   start(options: { eventDispatcher: Lark.EventDispatcher }): Promise<void>;
@@ -38,6 +40,8 @@ export class FeishuPlatformAdapter implements ChatPlatformAdapter {
   readonly #groupMessageMode: "all" | "at_only";
   readonly #startupRequired: boolean;
   readonly #sendRateLimiter = new FeishuGroupMessageRateLimiter();
+  readonly #stateCards = new Map<string, FeishuStateCardRecord>();
+  readonly #stateQueues = new Map<string, Promise<void>>();
   #started = false;
 
   constructor(options: {
@@ -247,8 +251,47 @@ export class FeishuPlatformAdapter implements ChatPlatformAdapter {
     };
   }
 
-  async postThreadState(_target: ChatThreadTarget, _state: ChatTurnState): Promise<void> {
-    // Feishu does not have an equivalent to Slack assistant thread status.
+  async postThreadState(target: ChatThreadTarget, state: ChatTurnState): Promise<void> {
+    await this.#runWithStateQueue(target, async () => {
+      const projection = createChatTurnProjection(target, state);
+      const card = createFeishuTurnStateCard(projection);
+      const hash = stableFeishuCardHash(card);
+      const stateKey = feishuStateCardKey(target);
+      const existing = this.#stateCards.get(stateKey);
+      if (existing?.hash === hash) {
+        return;
+      }
+
+      if (existing?.messageId) {
+        try {
+          await this.#api.patchMessage({
+            messageId: existing.messageId,
+            content: card,
+          });
+          this.#stateCards.set(stateKey, {
+            messageId: existing.messageId,
+            hash,
+          });
+          return;
+        } catch {
+          // Fall back to a fresh state card when Feishu can no longer patch the
+          // previous one. The bridge logs final delivery failure with session
+          // coordinates if the fallback send also fails.
+        }
+      }
+
+      await this.#waitForGroupSendSlot(target.conversationId);
+      const posted = await this.#api.replyMessage({
+        messageId: target.rootMessageId,
+        msgType: "interactive",
+        content: card,
+        replyInThread: true,
+      });
+      this.#stateCards.set(stateKey, {
+        messageId: posted.message_id,
+        hash,
+      });
+    });
   }
 
   async uploadThreadFile(target: ChatThreadTarget, file: ChatOutboundFile): Promise<ChatUploadedFile> {
@@ -367,6 +410,25 @@ export class FeishuPlatformAdapter implements ChatPlatformAdapter {
       await delay(delayMs);
     }
   }
+
+  async #runWithStateQueue(target: ChatThreadTarget, run: () => Promise<void>): Promise<void> {
+    const queueKey = feishuStateCardKey(target);
+    const previous = this.#stateQueues.get(queueKey) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(run);
+    this.#stateQueues.set(queueKey, current);
+    try {
+      await current;
+    } finally {
+      if (this.#stateQueues.get(queueKey) === current) {
+        this.#stateQueues.delete(queueKey);
+      }
+    }
+  }
+}
+
+interface FeishuStateCardRecord {
+  readonly messageId?: string | undefined;
+  readonly hash: string;
 }
 
 export const FEISHU_GROUP_MESSAGE_MIN_INTERVAL_MS = 200;
@@ -388,6 +450,14 @@ export class FeishuGroupMessageRateLimiter {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function feishuStateCardKey(target: ChatThreadTarget): string {
+  return `${target.conversationId}:${target.rootMessageId}`;
+}
+
+function stableFeishuCardHash(card: JsonLike): string {
+  return JSON.stringify(card);
 }
 
 async function prepareFeishuOutboundFile(file: ChatOutboundFile): Promise<{

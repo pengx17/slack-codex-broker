@@ -1663,9 +1663,10 @@ describe("FeishuCodexBridge", () => {
     });
     await sessions.setChatCodexThreadId(coordinates, "thread-1");
     await sessions.setChatActiveTurnId(coordinates, "turn-1");
+    const adapter = new FakeFeishuAdapter();
     const bridge = new FeishuCodexBridge({
       sessions,
-      adapter: new FakeFeishuAdapter(),
+      adapter,
       codex: new FakeCodex() as never,
       groupMessageMode: "all",
     });
@@ -1683,6 +1684,15 @@ describe("FeishuCodexBridge", () => {
       lastTurnSignalKind: "final",
       lastTurnSignalReason: "done",
     });
+    expect(adapter.postedStates).toEqual([
+      {
+        target: coordinates,
+        state: {
+          kind: "final",
+          reason: "done",
+        },
+      },
+    ]);
     const logs = await readJsonl(path.join(logDir, "broker.jsonl"));
     expect(logs).toEqual(
       expect.arrayContaining([
@@ -1695,6 +1705,15 @@ describe("FeishuCodexBridge", () => {
             codexThreadId: "thread-1",
             durationMs: 0,
             batchId: "state",
+          }),
+        }),
+        expect.objectContaining({
+          message: "chat.outbound.posted",
+          meta: expect.objectContaining({
+            platform: "feishu",
+            sessionKey: "feishu:b2NfZ3JvdXA:b21fcm9vdA",
+            format: "card",
+            messageId: "state",
           }),
         }),
       ]),
@@ -2580,6 +2599,7 @@ class FakeFeishuAdapter implements ChatPlatformAdapter {
   readonly platform = "feishu" as const;
   handlers: ChatPlatformHandlers | undefined;
   readonly postedMessages: unknown[] = [];
+  readonly postedStates: unknown[] = [];
   readonly uploadedFiles: unknown[] = [];
   readonly downloadedAttachments: unknown[] = [];
   readonly historyQueries: unknown[] = [];
@@ -2647,6 +2667,10 @@ class FakeFeishuAdapter implements ChatPlatformAdapter {
     } finally {
       this.activePosts -= 1;
     }
+  }
+
+  async postThreadState(target: ChatThreadTarget, state: unknown): Promise<void> {
+    this.postedStates.push({ target, state });
   }
 
   async uploadThreadFile(target: ChatThreadTarget, file: ChatOutboundFile): Promise<ChatUploadedFile> {

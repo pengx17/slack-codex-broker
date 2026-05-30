@@ -54,6 +54,7 @@ interface FeishuSdkClient {
       readonly message: {
         readonly create: (payload: unknown) => Promise<FeishuApiResponse<FeishuMessageData>>;
         readonly reply: (payload: unknown) => Promise<FeishuApiResponse<FeishuMessageData>>;
+        readonly patch: (payload: unknown) => Promise<FeishuApiResponse<FeishuMessageData>>;
         readonly list: (payload: unknown) => Promise<FeishuApiResponse<FeishuListMessagesData>>;
       };
       readonly image: {
@@ -113,6 +114,19 @@ export class FeishuApi {
     });
 
     return assertFeishuData(response, "im.v1.message.reply");
+  }
+
+  async patchMessage(options: { readonly messageId: string; readonly content: JsonLike }): Promise<FeishuMessageData> {
+    const response = await this.#client.im.v1.message.patch({
+      path: {
+        message_id: options.messageId,
+      },
+      data: {
+        content: JSON.stringify(options.content),
+      },
+    });
+
+    return assertFeishuData(response, "im.v1.message.patch");
   }
 
   async listMessages(options: {

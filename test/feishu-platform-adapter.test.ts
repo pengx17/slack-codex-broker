@@ -74,6 +74,94 @@ describe("FeishuPlatformAdapter", () => {
     expect(postedFeishuTextCalls(calls)).toEqual(["first", "other", "second"]);
   });
 
+  it("posts an initial Feishu turn-state card, patches later states, and skips duplicate states", async () => {
+    const calls: unknown[] = [];
+    const adapter = new FeishuPlatformAdapter({
+      appId: "cli-test",
+      appSecret: "secret-test",
+      api: createFakeApi(calls),
+      wsClient: new FakeWsClient(),
+    });
+    const target = {
+      platform: "feishu" as const,
+      conversationId: "oc_group",
+      rootMessageId: "om_root",
+    };
+
+    await adapter.postThreadState(target, {
+      kind: "wait",
+      reason: "CI is still running",
+    });
+    await adapter.postThreadState(target, {
+      kind: "wait",
+      reason: "CI is still running",
+    });
+    await adapter.postThreadState(target, {
+      kind: "final",
+      reason: "done",
+    });
+
+    expect(calls.map((call) => (call as { operation?: string }).operation)).toEqual(["replyMessage", "patchMessage"]);
+    expect(calls[0]).toEqual({
+      operation: "replyMessage",
+      options: expect.objectContaining({
+        messageId: "om_root",
+        msgType: "interactive",
+        replyInThread: true,
+        content: expect.objectContaining({
+          header: expect.objectContaining({
+            template: "yellow",
+            title: expect.objectContaining({
+              content: "Codex is waiting",
+            }),
+          }),
+        }),
+      }),
+    });
+    expect(calls[1]).toEqual({
+      operation: "patchMessage",
+      options: expect.objectContaining({
+        messageId: "om_reply",
+        content: expect.objectContaining({
+          header: expect.objectContaining({
+            template: "green",
+            title: expect.objectContaining({
+              content: "Codex finished",
+            }),
+          }),
+        }),
+      }),
+    });
+  });
+
+  it("falls back to a fresh Feishu turn-state card when patching the previous card fails", async () => {
+    const calls: unknown[] = [];
+    const adapter = new FeishuPlatformAdapter({
+      appId: "cli-test",
+      appSecret: "secret-test",
+      api: createFakeApi(calls, {
+        patchMessageError: new Error("expired card"),
+      }),
+      wsClient: new FakeWsClient(),
+    });
+    const target = {
+      platform: "feishu" as const,
+      conversationId: "oc_group",
+      rootMessageId: "om_root",
+    };
+
+    await adapter.postThreadState(target, {
+      kind: "wait",
+      reason: "CI is still running",
+    });
+    await adapter.postThreadState(target, {
+      kind: "final",
+      reason: "done",
+    });
+
+    expect(calls.map((call) => (call as { operation?: string }).operation)).toEqual(["replyMessage", "patchMessage", "replyMessage"]);
+  });
+
   it("lists Feishu history with thread containers, page cursors, and raw card content", async () => {
     const calls: unknown[] = [];
     const adapter = new FeishuPlatformAdapter({
@@ -1767,11 +1855,23 @@ function createFakeApi(
   calls: unknown[] = [],
   options?: {
     readonly listMessages?: unknown;
+    readonly patchMessageError?: unknown;
   },
 ) {
   return {
     replyMessage: async (options: unknown) => {
       calls.push({ operation: "replyMessage", options });
+      return {
+        message_id: "om_reply",
+        root_id: "om_root",
+        create_time: "1710000000000",
+      };
+    },
+    patchMessage: async (payload: unknown) => {
+      calls.push({ operation: "patchMessage", options: payload });
+      if (options?.patchMessageError) {
+        throw options.patchMessageError;
+      }
       return {
         message_id: "om_reply",
         root_id: "om_root",

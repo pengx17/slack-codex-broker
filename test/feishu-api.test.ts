@@ -83,6 +83,40 @@ describe("FeishuApi", () => {
     });
   });
 
+  it("patches Feishu messages with serialized card content", async () => {
+    const calls: unknown[] = [];
+    const api = new FeishuApi({
+      appId: "cli-test",
+      appSecret: "secret-test",
+      client: createFakeClient(calls),
+    });
+
+    await api.patchMessage({
+      messageId: "om_status",
+      content: {
+        config: {
+          wide_screen_mode: true,
+        },
+      },
+    });
+
+    expect(calls[0]).toEqual({
+      operation: "patch",
+      payload: {
+        path: {
+          message_id: "om_status",
+        },
+        data: {
+          content: JSON.stringify({
+            config: {
+              wide_screen_mode: true,
+            },
+          }),
+        },
+      },
+    });
+  });
+
   it("lists group history with raw card content enabled", async () => {
     const calls: unknown[] = [];
     const api = new FeishuApi({
@@ -307,6 +341,15 @@ function createFakeClient(
               code: 0,
               data: {
                 message_id: "om_reply",
+              },
+            };
+          },
+          patch: async (payload: unknown) => {
+            calls.push({ operation: "patch", payload });
+            return {
+              code: 0,
+              data: {
+                message_id: "om_status",
               },
             };
           },

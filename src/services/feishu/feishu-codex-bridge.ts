@@ -136,6 +136,41 @@ export class FeishuCodexBridge {
       status: options.kind,
       reason: options.reason,
     });
+
+    const postThreadState = this.#adapter.postThreadState?.bind(this.#adapter);
+    if (!postThreadState) {
+      return;
+    }
+
+    await this.#runWithOutboundQueue(coordinates, async () => {
+      try {
+        await postThreadState(coordinates, {
+          kind: options.kind,
+          reason: options.reason,
+        });
+        logger.info("chat.outbound.posted", {
+          platform: "feishu",
+          sessionKey: updated.key,
+          conversationId: options.conversationId,
+          rootMessageId: options.rootMessageId,
+          messageId: "state",
+          format: "card",
+          durationMs: 0,
+        });
+      } catch (error) {
+        logger.warn("chat.outbound.failed", {
+          platform: "feishu",
+          sessionKey: updated.key,
+          conversationId: options.conversationId,
+          rootMessageId: options.rootMessageId,
+          format: "card",
+          errorClass: error instanceof Error ? error.name : "Error",
+          statusCode: statusCodeFromError(error) ?? "unknown",
+          attempt: 1,
+        });
+        throw error;
+      }
+    });
   }
 
   async postChatFile(
