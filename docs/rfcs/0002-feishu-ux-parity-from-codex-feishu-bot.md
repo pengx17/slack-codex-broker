@@ -385,7 +385,7 @@ not confuse "the checker passed" with "the platform was driven end-to-end."
 | 3     | Auto-drive      | test runner creates inbound work and observes broker reply | user token posts in configured test channel, bot replies in thread/channel | requires a Feishu test-user/browser driver; app-only bot credentials are not enough |
 | 4     | Scheduled guard | repeated unattended regression catches drift               | scheduled Slack self-regression against the test channel                   | scheduled only after Feishu auto-drive exists                                       |
 
-Proposed command shape:
+Current command shape:
 
 - `pnpm manual:self-regression -- --platform slack --preflight --env-file .env.local --json`
 - `pnpm manual:self-regression -- --platform slack --drive --channel "$SLACK_SELF_REGRESSION_CHANNEL" --output-dir evidence/self-regression/slack --json`
@@ -393,9 +393,11 @@ Proposed command shape:
 - `pnpm manual:self-regression -- --platform feishu --observe --setup-evidence-file evidence/feishu-smoke/feishu-setup-evidence.json --output-dir evidence/self-regression/feishu --json`
 - `pnpm manual:self-regression -- --status-file evidence/self-regression/<platform>/admin-status.json --output-dir evidence/self-regression/<platform> --json`
 
-These command names are intentionally proposed, not claimed as already wired.
-The implementation PR must either add them or update this RFC with the actual
-runner names before claiming the automated self-regression gate.
+The shared `manual:self-regression` entrypoint is wired for Slack/Feishu
+preflight, saved admin-status replay, live admin observe, and Slack channel
+drive where credentials and a running broker are available. Feishu drive remains
+explicitly blocked until a human/browser/test-user driver exists; use Feishu
+observe mode after the manual group actions until then.
 
 Automation rules:
 

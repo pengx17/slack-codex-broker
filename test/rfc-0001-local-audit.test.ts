@@ -10,6 +10,7 @@ const requiredScripts = {
   test: "vitest run",
   "test:e2e:feishu-mock": "vitest run test/feishu-codex-bridge.test.ts test/feishu-platform-adapter.test.ts test/feishu-fixture-replay.test.ts test/dual-platform-runtime.test.ts",
   "manual:feishu-smoke": "tsx test/manual/run-real-feishu-smoke.ts --",
+  "manual:self-regression": "tsx test/manual/run-self-regression.ts --",
   "rfc:feishu-audit": "tsx test/manual/run-rfc-0001-local-audit.ts",
   "rfc:feishu-audit:local": "tsx test/manual/run-rfc-0001-local-audit.ts -- --local-only",
   "rfc:feishu-test-plan": "tsx test/manual/run-rfc-0001-test-plan.ts",

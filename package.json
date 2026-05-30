@@ -45,6 +45,7 @@
     "manual:test": "tsx test/manual/run-real-codex-smoke.ts",
     "manual:codex-coding-smoke": "tsx test/manual/run-real-codex-coding-smoke.ts",
     "manual:feishu-smoke": "tsx test/manual/run-real-feishu-smoke.ts --",
+    "manual:self-regression": "tsx test/manual/run-self-regression.ts --",
     "manual:feishu-controlled-evidence": "tsx test/manual/write-controlled-feishu-smoke-evidence.ts",
     "rfc:feishu-audit": "tsx test/manual/run-rfc-0001-local-audit.ts",
     "rfc:feishu-audit:local": "tsx test/manual/run-rfc-0001-local-audit.ts -- --local-only",

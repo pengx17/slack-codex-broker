@@ -67,7 +67,8 @@ describe("RFC 0001 documentation", () => {
     expect(content).toContain("message to itself does not prove user inbound");
     expect(content).toContain("pnpm manual:self-regression -- --platform slack --drive");
     expect(content).toContain("pnpm manual:self-regression -- --platform feishu --observe");
-    expect(content).toContain("These command names are intentionally proposed, not claimed as already wired.");
+    expect(content).toContain("The shared `manual:self-regression` entrypoint is wired");
+    expect(content).toContain("Feishu drive remains");
   });
 
   it("keeps completion evidence progressive after real-tenant signoff", async () => {

@@ -52,6 +52,7 @@ const REQUIRED_PACKAGE_SCRIPTS: ReadonlyArray<{
   { name: "test", includes: "vitest run" },
   { name: "test:e2e:feishu-mock", includes: "test/dual-platform-runtime.test.ts" },
   { name: "manual:feishu-smoke", includes: "run-real-feishu-smoke.ts --" },
+  { name: "manual:self-regression", includes: "run-self-regression.ts --" },
   { name: "rfc:feishu-audit", includes: "run-rfc-0001-local-audit.ts" },
   { name: "rfc:feishu-audit:local", includes: "--local-only" },
   { name: "rfc:feishu-test-plan", includes: "run-rfc-0001-test-plan.ts" },
@@ -130,6 +131,7 @@ export const RFC0001_REQUIRED_LOCAL_TEST_FILES = [
   "test/job-routes.test.ts",
   "test/ops-feishu-preflight.test.ts",
   "test/slack-routes.test.ts",
+  "test/self-regression-runner.test.ts",
   "test/rfc-0001-docs.test.ts",
   "test/rfc-0001-test-plan.test.ts",
 ];
@@ -265,6 +267,11 @@ export const RFC0001_REQUIRED_LOCAL_EVIDENCE_PATTERNS: ReadonlyArray<{
     id: "smoke.saved_evidence_requires_setup",
     file: "test/feishu-real-smoke.test.ts",
     snippets: ["can evaluate a saved admin status evidence file", "const missingSetupReport = await evaluateFeishuSmokeStatusFile(statusFile", "expect(missingSetupReport.ok).toBe(false)", "setupEvidenceFile", "expect(report.ok).toBe(true)"],
+  },
+  {
+    id: "self_regression.shared_runner",
+    file: "test/self-regression-runner.test.ts",
+    snippets: ["checks Slack preflight without exposing token values", "replays Slack admin status for roundtrip, status, and file evidence", "uses the Feishu smoke evaluator for Feishu preflight under the shared command"],
   },
   {
     id: "admin.platform_health",
