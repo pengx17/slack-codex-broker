@@ -339,7 +339,19 @@ async function driveSlackSelfRegression(options: CliOptions, env: Record<string,
   }
 
   try {
-    const botUserId = await fetchSlackBotUserId(env.SLACK_BOT_TOKEN!, fetchFn);
+    const checks: SelfRegressionCheck[] = [];
+    const credentialCheck = await checkSlackCredentialAlignment(env.SLACK_APP_TOKEN!, env.SLACK_BOT_TOKEN!, fetchFn);
+    if (credentialCheck.status !== "pass") {
+      return [credentialCheck];
+    }
+    const botUserId = credentialCheck.botUserId!;
+    const actorCheck = await checkSlackDriveActorSeparation(env.SLACK_USER_TOKEN!, {
+      botUserId,
+      fetch: fetchFn,
+    });
+    if (actorCheck.status !== "pass") {
+      return [actorCheck];
+    }
     const resolvedChannel = await resolveSlackChannelId({
       tokens: [
         {
@@ -360,6 +372,23 @@ async function driveSlackSelfRegression(options: CliOptions, env: Record<string,
       text: `<@${botUserId}> self-regression ${Date.now()} reply with SELF_REGRESSION_OK`,
       fetch: fetchFn,
     });
+    checks.push({
+      id: "slack.drive.message_posted",
+      label: "Slack drive posted a controlled user message",
+      required: true,
+      status: "pass",
+      evidence: [`channel=${formatSlackChannelEvidence(channel)}`, `channel_resolved_by=${resolvedChannel.resolvedBy}`, `ts=${sanitizeEvidenceText(message.ts)}`],
+    });
+    const acceptedCheck = await waitForSlackDriveSessionAccepted({
+      options,
+      conversationId: resolvedChannel.id,
+      rootMessageId: message.ts,
+      fetch: fetchFn,
+    });
+    checks.push(acceptedCheck);
+    if (acceptedCheck.status !== "pass") {
+      return checks;
+    }
     const file = await postSlackDriveFile({
       baseUrl: options.baseUrl,
       platform: "slack",
@@ -367,22 +396,14 @@ async function driveSlackSelfRegression(options: CliOptions, env: Record<string,
       rootMessageId: message.ts,
       fetch: fetchFn,
     });
-    return [
-      {
-        id: "slack.drive.message_posted",
-        label: "Slack drive posted a controlled user message",
-        required: true,
-        status: "pass",
-        evidence: [`channel=${formatSlackChannelEvidence(channel)}`, `channel_resolved_by=${resolvedChannel.resolvedBy}`, `ts=${sanitizeEvidenceText(message.ts)}`],
-      },
-      {
-        id: "slack.drive.file_posted",
-        label: "Slack drive exercised a controlled file upload",
-        required: true,
-        status: "pass",
-        evidence: [`channel=${formatSlackChannelEvidence(channel)}`, `rootMessageId=${sanitizeEvidenceText(message.ts)}`, `file=${file}`],
-      },
-    ];
+    checks.push({
+      id: "slack.drive.file_posted",
+      label: "Slack drive exercised a controlled file upload",
+      required: true,
+      status: "pass",
+      evidence: [`channel=${formatSlackChannelEvidence(channel)}`, `rootMessageId=${sanitizeEvidenceText(message.ts)}`, `file=${file}`],
+    });
+    return checks;
   } catch (error) {
     return [
       {
@@ -395,6 +416,75 @@ async function driveSlackSelfRegression(options: CliOptions, env: Record<string,
       },
     ];
   }
+}
+
+async function checkSlackDriveActorSeparation(userToken: string, options: { readonly botUserId: string; readonly fetch: typeof fetch }): Promise<SelfRegressionCheck> {
+  const userIdentity = await fetchSlackAuthIdentity(userToken, options.fetch);
+  const passed = Boolean(userIdentity.userId && userIdentity.userId !== options.botUserId);
+  return {
+    id: "slack.drive.user_actor_distinct",
+    label: "Slack drive user token belongs to a human/test user, not the bot",
+    required: true,
+    status: passed ? "pass" : "fail",
+    evidence: [`drive_user_id=${userIdentity.userId ?? "unknown"}`, `bot_user_id=${options.botUserId}`, `drive_user=${userIdentity.user ?? "unknown"}`],
+    nextAction: passed ? undefined : "Replace SLACK_USER_TOKEN with a real user token for the test workspace; bot tokens cannot prove inbound human messages.",
+  };
+}
+
+async function waitForSlackDriveSessionAccepted(options: { readonly options: CliOptions; readonly conversationId: string; readonly rootMessageId: string; readonly fetch: typeof fetch }): Promise<SelfRegressionCheck> {
+  const deadline = Date.now() + Math.max(options.options.waitMs, options.options.intervalMs);
+  let lastEvidence = "missing=chat.message.accepted";
+  do {
+    try {
+      const status = await fetchAdminStatus(options.options, options.fetch);
+      const logs = asArray(asRecord(asRecord(status).state).recentBrokerLogs);
+      const accepted = matchingLogs(logs, "chat.message.accepted", {
+        platform: "slack",
+      }).filter((log) => {
+        const meta = logMeta(log);
+        return readString(meta.conversationId) === options.conversationId && readString(meta.rootMessageId) === options.rootMessageId;
+      });
+      if (accepted.length > 0) {
+        return {
+          id: "slack.drive.session_accepted",
+          label: "Slack drive message was accepted by the broker before file upload",
+          required: true,
+          status: "pass",
+          evidence: accepted.slice(-2).map(summarizeLog),
+        };
+      }
+    } catch (error) {
+      lastEvidence = formatFeishuSmokeCliError(error);
+    }
+    if (Date.now() >= deadline) {
+      break;
+    }
+    await delay(options.options.intervalMs);
+  } while (Date.now() < deadline);
+
+  return {
+    id: "slack.drive.session_accepted",
+    label: "Slack drive message was accepted by the broker before file upload",
+    required: true,
+    status: "fail",
+    evidence: [lastEvidence],
+    nextAction: "Wait for the Slack app mention to appear in broker admin logs before posting the file artifact.",
+  };
+}
+
+async function checkSlackCredentialAlignment(appToken: string, botToken: string, fetchFn: typeof fetch): Promise<SelfRegressionCheck & { readonly botUserId?: string | undefined }> {
+  const appTokenAppId = parseSlackAppIdFromAppToken(appToken);
+  const botIdentity = await fetchSlackBotIdentity(botToken, fetchFn);
+  const passed = !appTokenAppId || !botIdentity.appId || appTokenAppId === botIdentity.appId;
+  return {
+    id: "slack.drive.credential_alignment",
+    label: "Slack app-level token and bot token belong to the same Slack app",
+    required: true,
+    status: passed ? "pass" : "fail",
+    evidence: [`bot_app_id=${botIdentity.appId ?? "unknown"}`, `app_token_app_id=${appTokenAppId ?? "unknown"}`, `bot_user_id=${botIdentity.userId}`],
+    nextAction: passed ? undefined : "Replace SLACK_BOT_TOKEN and SLACK_APP_TOKEN with tokens from the same Slack app, then reinstall the app to the workspace.",
+    botUserId: botIdentity.userId,
+  };
 }
 
 async function resolveSlackChannelId(options: { readonly tokens: ReadonlyArray<{ readonly label: string; readonly token: string }>; readonly channel: string; readonly fetch: typeof fetch }): Promise<{ readonly id: string; readonly resolvedBy: string }> {
@@ -444,7 +534,33 @@ async function resolveSlackChannelId(options: { readonly tokens: ReadonlyArray<{
   throw new Error(`Slack channel label was not found: ${trimmed}${suffix}`);
 }
 
-async function fetchSlackBotUserId(token: string, fetchFn: typeof fetch): Promise<string> {
+async function fetchSlackBotIdentity(token: string, fetchFn: typeof fetch): Promise<{ readonly userId: string; readonly appId?: string | undefined }> {
+  const payload = await fetchSlackAuthTest(token, fetchFn);
+  const userId = readString(payload.user_id);
+  if (!userId) {
+    throw new Error("Slack auth.test did not return bot user id");
+  }
+  const botId = readString(payload.bot_id);
+  let appId = readString(payload.app_id);
+  if (!appId && botId) {
+    appId = await fetchSlackBotAppId(token, botId, fetchFn);
+  }
+  return {
+    userId,
+    appId,
+  };
+}
+
+async function fetchSlackAuthIdentity(token: string, fetchFn: typeof fetch): Promise<{ readonly userId?: string | undefined; readonly user?: string | undefined; readonly botId?: string | undefined }> {
+  const payload = await fetchSlackAuthTest(token, fetchFn);
+  return {
+    userId: readString(payload.user_id),
+    user: readString(payload.user),
+    botId: readString(payload.bot_id),
+  };
+}
+
+async function fetchSlackAuthTest(token: string, fetchFn: typeof fetch): Promise<Record<string, unknown>> {
   const response = await fetchFn("https://slack.com/api/auth.test", {
     method: "POST",
     headers: {
@@ -456,11 +572,25 @@ async function fetchSlackBotUserId(token: string, fetchFn: typeof fetch): Promis
   if (!response.ok || payload.ok !== true) {
     throw new Error(`Slack auth.test failed: ${readString(payload.error) ?? response.status}`);
   }
-  const userId = readString(payload.user_id);
-  if (!userId) {
-    throw new Error("Slack auth.test did not return bot user id");
+  return payload;
+}
+
+async function fetchSlackBotAppId(token: string, botId: string, fetchFn: typeof fetch): Promise<string | undefined> {
+  const response = await fetchFn(`https://slack.com/api/bots.info?${new URLSearchParams({ bot: botId }).toString()}`, {
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+  const payload = asRecord(await response.json());
+  if (!response.ok || payload.ok !== true) {
+    return undefined;
   }
-  return userId;
+  return readString(asRecord(payload.bot).app_id);
+}
+
+function parseSlackAppIdFromAppToken(token: string): string | undefined {
+  const match = /^xapp-\d+-([A-Z0-9]+)-/u.exec(token);
+  return match?.[1];
 }
 
 async function postSlackDriveMessage(options: { readonly token: string; readonly channel: string; readonly text: string; readonly fetch: typeof fetch }): Promise<{ readonly ts: string }> {

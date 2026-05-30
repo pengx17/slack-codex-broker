@@ -406,14 +406,17 @@ drive where credentials and a running broker are available. Slack drive accepts
 either a safe `#channel` label or a Slack channel id. If the user token cannot
 list channels, the runner may resolve the channel with the bot token, but the
 inbound message still requires a user-capable token that can call
-`chat.postMessage` in the configured test channel. Feishu drive remains
-explicitly blocked until a human/browser/test-user driver exists; use Feishu
-observe mode after the manual group actions until then. Feishu observe must
-include `--manual-action` or `FEISHU_SELF_REGRESSION_MANUAL_ACTION`; otherwise
-the report fails closed because broad admin logs alone do not prove which
-operator action produced the inbound event. Completion audit remains red until
-Slack drive, Feishu observe, and real Codex coding smoke bundles are present,
-sanitized, and replayable.
+`chat.postMessage` in the configured test channel. That token must authenticate
+as a human or dedicated test user, not as the bot user: a bot posting
+`<@itself>` only produces self-authored Slack message events and cannot prove
+human inbound routing. Feishu drive remains explicitly blocked until a
+human/browser/test-user driver exists; use Feishu observe mode after the manual
+group actions until then. Feishu observe must include `--manual-action` or
+`FEISHU_SELF_REGRESSION_MANUAL_ACTION`; otherwise the report fails closed
+because broad admin logs alone do not prove which operator action produced the
+inbound event. Completion audit remains red until Slack drive, Feishu observe,
+and real Codex coding smoke bundles are present, sanitized, and replayable.
+Put differently: Slack drive, Feishu observe, and real Codex coding smoke bundles are present before the final acceptance gate can turn green.
 
 Automation rules:
 
@@ -428,6 +431,8 @@ Automation rules:
 - [x] Slack auto-drive must fail closed with the Slack API `needed`/`provided`
       scope posture when the configured token cannot post the controlled user
       message.
+- [x] Slack auto-drive must fail closed when `SLACK_USER_TOKEN` authenticates as
+      the bot user; self-authored bot messages do not prove user inbound.
 - [x] Feishu observe mode may be accepted as interim evidence only if it clearly
       says which human/browser action produced the inbound event.
 - [x] Feishu auto-drive requires a separate driver design. A bot sending a

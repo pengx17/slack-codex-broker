@@ -303,9 +303,19 @@ describe("self-regression runner", () => {
       const href = String(url);
       calls.push(href);
       if (href === "https://slack.com/api/auth.test") {
+        const authorization = new Headers(init?.headers).get("authorization");
+        if (authorization === "Bearer xoxp-secret-value") {
+          return jsonResponse({
+            ok: true,
+            user: "test-user",
+            user_id: "UUSER",
+          });
+        }
         return jsonResponse({
           ok: true,
+          user: "bot",
           user_id: "UBOT",
+          app_id: "A123",
         });
       }
       if (href.startsWith("https://slack.com/api/conversations.list")) {
@@ -375,7 +385,7 @@ describe("self-regression runner", () => {
       {
         fetch: fetch as typeof globalThis.fetch,
         env: {
-          SLACK_APP_TOKEN: "xapp-secret-value",
+          SLACK_APP_TOKEN: "xapp-1-A123-secret-value",
           SLACK_BOT_TOKEN: "xoxb-secret-value",
           SLACK_USER_TOKEN: "xoxp-secret-value",
         },
@@ -402,12 +412,22 @@ describe("self-regression runner", () => {
   });
 
   it("reports Slack posting scope posture when auto-drive cannot create the user message", async () => {
-    const fetch = async (url: string | URL) => {
+    const fetch = async (url: string | URL, init?: RequestInit) => {
       const href = String(url);
       if (href === "https://slack.com/api/auth.test") {
+        const authorization = new Headers(init?.headers).get("authorization");
+        if (authorization === "Bearer xoxp-secret-value") {
+          return jsonResponse({
+            ok: true,
+            user: "test-user",
+            user_id: "UUSER",
+          });
+        }
         return jsonResponse({
           ok: true,
+          user: "bot",
           user_id: "UBOT",
+          app_id: "A123",
         });
       }
       if (href.startsWith("https://slack.com/api/conversations.list")) {
@@ -448,7 +468,7 @@ describe("self-regression runner", () => {
       {
         fetch: fetch as typeof globalThis.fetch,
         env: {
-          SLACK_APP_TOKEN: "xapp-secret-value",
+          SLACK_APP_TOKEN: "xapp-1-A123-secret-value",
           SLACK_BOT_TOKEN: "xoxb-secret-value",
           SLACK_USER_TOKEN: "xoxp-secret-value",
         },
@@ -468,9 +488,171 @@ describe("self-regression runner", () => {
     );
     expect(JSON.stringify(report)).not.toContain("secret-value");
   });
+
+  it("fails Slack drive early when the drive user token authenticates as the bot", async () => {
+    const calls: string[] = [];
+    const fetch = async (url: string | URL) => {
+      const href = String(url);
+      calls.push(href);
+      if (href === "https://slack.com/api/auth.test") {
+        return jsonResponse({
+          ok: true,
+          user: "workworktest",
+          user_id: "UBOT",
+          app_id: "A123",
+        });
+      }
+      throw new Error(`unexpected fetch ${href}`);
+    };
+
+    const report = await collectSelfRegressionReport(
+      {
+        platform: "slack",
+        mode: "drive",
+        baseUrl: "http://127.0.0.1:3000",
+        channel: "#xp-test",
+        waitMs: 0,
+        intervalMs: 1000,
+        json: true,
+      },
+      {
+        fetch: fetch as typeof globalThis.fetch,
+        env: {
+          SLACK_APP_TOKEN: "xapp-1-A123-secret-value",
+          SLACK_BOT_TOKEN: "xoxb-secret-value",
+          SLACK_USER_TOKEN: "xoxp-secret-value",
+        },
+        now: new Date("2026-05-30T00:00:00.000Z"),
+      },
+    );
+
+    expect(report.ok).toBe(false);
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "slack.drive.user_actor_distinct",
+          status: "fail",
+          evidence: ["drive_user_id=UBOT", "bot_user_id=UBOT", "drive_user=workworktest"],
+        }),
+      ]),
+    );
+    expect(calls).toEqual(["https://slack.com/api/auth.test", "https://slack.com/api/auth.test"]);
+    expect(JSON.stringify(report)).not.toContain("secret-value");
+  });
+
+  it("fails Slack drive early when the app token and bot token belong to different apps", async () => {
+    const calls: string[] = [];
+    const fetch = async (url: string | URL) => {
+      const href = String(url);
+      calls.push(href);
+      if (href === "https://slack.com/api/auth.test") {
+        return jsonResponse({
+          ok: true,
+          user_id: "UBOT",
+          app_id: "AOLDAPP",
+        });
+      }
+      throw new Error(`unexpected fetch ${href}`);
+    };
+
+    const report = await collectSelfRegressionReport(
+      {
+        platform: "slack",
+        mode: "drive",
+        baseUrl: "http://127.0.0.1:3000",
+        channel: "#xp-test",
+        waitMs: 0,
+        intervalMs: 1000,
+        json: true,
+      },
+      {
+        fetch: fetch as typeof globalThis.fetch,
+        env: {
+          SLACK_APP_TOKEN: "xapp-1-ANEWAPP-secret-value",
+          SLACK_BOT_TOKEN: "xoxb-secret-value",
+          SLACK_USER_TOKEN: "xoxp-secret-value",
+        },
+        now: new Date("2026-05-30T00:00:00.000Z"),
+      },
+    );
+
+    expect(report.ok).toBe(false);
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "slack.drive.credential_alignment",
+          status: "fail",
+          evidence: ["bot_app_id=AOLDAPP", "app_token_app_id=ANEWAPP", "bot_user_id=UBOT"],
+        }),
+      ]),
+    );
+    expect(calls).toEqual(["https://slack.com/api/auth.test"]);
+    expect(JSON.stringify(report)).not.toContain("secret-value");
+  });
+
+  it("falls back to bots.info for Slack bot app identity when auth.test omits it", async () => {
+    const calls: string[] = [];
+    const fetch = async (url: string | URL) => {
+      const href = String(url);
+      calls.push(href);
+      if (href === "https://slack.com/api/auth.test") {
+        return jsonResponse({
+          ok: true,
+          user_id: "UBOT",
+          bot_id: "BBOT",
+        });
+      }
+      if (href === "https://slack.com/api/bots.info?bot=BBOT") {
+        return jsonResponse({
+          ok: true,
+          bot: {
+            app_id: "AOLDAPP",
+          },
+        });
+      }
+      throw new Error(`unexpected fetch ${href}`);
+    };
+
+    const report = await collectSelfRegressionReport(
+      {
+        platform: "slack",
+        mode: "drive",
+        baseUrl: "http://127.0.0.1:3000",
+        channel: "#xp-test",
+        waitMs: 0,
+        intervalMs: 1000,
+        json: true,
+      },
+      {
+        fetch: fetch as typeof globalThis.fetch,
+        env: {
+          SLACK_APP_TOKEN: "xapp-1-ANEWAPP-secret-value",
+          SLACK_BOT_TOKEN: "xoxb-secret-value",
+          SLACK_USER_TOKEN: "xoxp-secret-value",
+        },
+        now: new Date("2026-05-30T00:00:00.000Z"),
+      },
+    );
+
+    expect(report.ok).toBe(false);
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "slack.drive.credential_alignment",
+          status: "fail",
+          evidence: ["bot_app_id=AOLDAPP", "app_token_app_id=ANEWAPP", "bot_user_id=UBOT"],
+        }),
+      ]),
+    );
+    expect(calls).toEqual(["https://slack.com/api/auth.test", "https://slack.com/api/bots.info?bot=BBOT"]);
+    expect(JSON.stringify(report)).not.toContain("secret-value");
+  });
 });
 
 function slackReplayStatus(): unknown {
+  const conversationId = "CXPTEST";
+  const rootMessageId = "111.222";
+  const sessionKey = `${conversationId}:${rootMessageId}`;
   return {
     platforms: {
       slack: {
@@ -491,26 +673,26 @@ function slackReplayStatus(): unknown {
           message: "chat.message.accepted",
           meta: {
             platform: "slack",
-            sessionKey: "C123:111.222",
-            conversationId: "C123",
-            rootMessageId: "111.222",
-            messageId: "111.222",
+            sessionKey,
+            conversationId,
+            rootMessageId,
+            messageId: rootMessageId,
           },
         },
         {
           message: "slack.assistant.status.updated",
           meta: {
             platform: "slack",
-            sessionKey: "C123:111.222",
+            sessionKey,
           },
         },
         {
           message: "chat.outbound.posted",
           meta: {
             platform: "slack",
-            sessionKey: "C123:111.222",
-            conversationId: "C123",
-            rootMessageId: "111.222",
+            sessionKey,
+            conversationId,
+            rootMessageId,
             messageId: "111.333",
             format: "text",
           },
@@ -519,9 +701,9 @@ function slackReplayStatus(): unknown {
           message: "chat.outbound.posted",
           meta: {
             platform: "slack",
-            sessionKey: "C123:111.222",
-            conversationId: "C123",
-            rootMessageId: "111.222",
+            sessionKey,
+            conversationId,
+            rootMessageId,
             messageId: "F123",
             format: "file",
           },
