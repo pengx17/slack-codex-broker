@@ -24,6 +24,7 @@ import {
 } from "../chat/chat-types.js";
 import type { JsonLike } from "../../types.js";
 import { FeishuApi, type FeishuMessageData, createFeishuTextContent, feishuSdkDomainFromApiBaseUrl } from "./feishu-api.js";
+import { classifyFeishuCardUpdateFailure, missingFeishuCardMessageIdFailure } from "./feishu-card-update-failure.js";
 import { type FeishuBotIdentity, routeFeishuReceiveMessageEvent } from "./feishu-event-parser.js";
 import { createFeishuTurnStateCard } from "./feishu-status-card.js";
 
@@ -455,6 +456,10 @@ export class FeishuPlatformAdapter implements ChatPlatformAdapter {
       return;
     }
 
+    if (existing && !existing.messageId) {
+      this.#recordStateCardPatchFailure(target, missingFeishuCardMessageIdFailure());
+    }
+
     if (existing?.messageId) {
       try {
         await this.#api.patchMessage({
@@ -466,7 +471,8 @@ export class FeishuPlatformAdapter implements ChatPlatformAdapter {
           hash,
         });
         return;
-      } catch {
+      } catch (error) {
+        this.#recordStateCardPatchFailure(target, classifyFeishuCardUpdateFailure(error));
         // Fall back to a fresh state card when Feishu can no longer patch the
         // previous one. The bridge logs final delivery failure with session
         // coordinates if the fallback send also fails.
@@ -483,6 +489,16 @@ export class FeishuPlatformAdapter implements ChatPlatformAdapter {
     this.#stateCards.set(stateKey, {
       messageId: posted.message_id,
       hash,
+    });
+  }
+
+  #recordStateCardPatchFailure(target: ChatThreadTarget, failure: { readonly kind: string; readonly statusCode?: number | undefined }): void {
+    logger.debug("chat.state_card.patch_failed", {
+      platform: "feishu",
+      conversationId: target.conversationId,
+      rootMessageId: target.rootMessageId,
+      failureKind: failure.kind,
+      statusCode: failure.statusCode ?? "unknown",
     });
   }
 }
