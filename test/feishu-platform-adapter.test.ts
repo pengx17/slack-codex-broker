@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { configureLogger, flushLogger } from "../src/logger.js";
 import { CHAT_FILE_SOURCE_REQUIREMENT_MESSAGE, CHAT_INLINE_FILE_CONTENT_REQUIREMENT_MESSAGE, CHAT_INLINE_FILE_FILENAME_REQUIREMENT_MESSAGE } from "../src/services/chat/chat-types.js";
-import { FEISHU_GROUP_MESSAGE_MIN_INTERVAL_MS, FeishuGroupMessageRateLimiter, FeishuPlatformAdapter } from "../src/services/feishu/feishu-platform-adapter.js";
+import { FEISHU_GROUP_MESSAGE_MIN_INTERVAL_MS, FEISHU_STATE_CARD_PATCH_DEBOUNCE_MS, FeishuGroupMessageRateLimiter, FeishuPlatformAdapter } from "../src/services/feishu/feishu-platform-adapter.js";
 
 describe("FeishuPlatformAdapter", () => {
   afterEach(() => {
@@ -81,6 +81,7 @@ describe("FeishuPlatformAdapter", () => {
       appSecret: "secret-test",
       api: createFakeApi(calls),
       wsClient: new FakeWsClient(),
+      stateCardPatchDebounceMs: 0,
     });
     const target = {
       platform: "feishu" as const,
@@ -134,6 +135,124 @@ describe("FeishuPlatformAdapter", () => {
     });
   });
 
+  it("debounces rapid Feishu turn-state patches to the latest visible card state", async () => {
+    vi.useFakeTimers();
+    const calls: unknown[] = [];
+    const adapter = new FeishuPlatformAdapter({
+      appId: "cli-test",
+      appSecret: "secret-test",
+      api: createFakeApi(calls),
+      wsClient: new FakeWsClient(),
+      stateCardPatchDebounceMs: FEISHU_STATE_CARD_PATCH_DEBOUNCE_MS,
+    });
+    const target = {
+      platform: "feishu" as const,
+      conversationId: "oc_group",
+      rootMessageId: "om_root",
+    };
+
+    const initial = adapter.postThreadState(target, {
+      kind: "wait",
+      reason: "initial queue",
+    });
+    await vi.advanceTimersByTimeAsync(FEISHU_STATE_CARD_PATCH_DEBOUNCE_MS);
+    await initial;
+
+    const waiting = adapter.postThreadState(target, {
+      kind: "wait",
+      reason: "still waiting",
+    });
+    const blocked = adapter.postThreadState(target, {
+      kind: "block",
+      reason: "needs approval",
+    });
+    const final = adapter.postThreadState(target, {
+      kind: "final",
+      reason: "done",
+    });
+
+    await vi.advanceTimersByTimeAsync(FEISHU_STATE_CARD_PATCH_DEBOUNCE_MS - 1);
+    expect(calls.map((call) => (call as { operation?: string }).operation)).toEqual(["replyMessage"]);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await Promise.all([waiting, blocked, final]);
+
+    expect(calls.map((call) => (call as { operation?: string }).operation)).toEqual(["replyMessage", "patchMessage"]);
+    expect(calls[1]).toEqual({
+      operation: "patchMessage",
+      options: expect.objectContaining({
+        messageId: "om_reply",
+        content: expect.objectContaining({
+          header: expect.objectContaining({
+            template: "green",
+            title: expect.objectContaining({
+              content: "Codex finished",
+            }),
+          }),
+        }),
+      }),
+    });
+  });
+
+  it("serializes slow Feishu turn-state patches so the final visible state wins", async () => {
+    let releaseFirstPatch: (() => void) | undefined;
+    const firstPatchBlocker = new Promise<void>((resolve) => {
+      releaseFirstPatch = resolve;
+    });
+    const calls: unknown[] = [];
+    const adapter = new FeishuPlatformAdapter({
+      appId: "cli-test",
+      appSecret: "secret-test",
+      api: createFakeApi(calls, {
+        firstPatchBlocker,
+      }),
+      wsClient: new FakeWsClient(),
+      stateCardPatchDebounceMs: 0,
+    });
+    const target = {
+      platform: "feishu" as const,
+      conversationId: "oc_group",
+      rootMessageId: "om_root",
+    };
+
+    await adapter.postThreadState(target, {
+      kind: "wait",
+      reason: "initial queue",
+    });
+
+    const blocked = adapter.postThreadState(target, {
+      kind: "block",
+      reason: "needs approval",
+    });
+    await flushAsyncHandlers();
+    expect(calls.map((call) => (call as { operation?: string }).operation)).toEqual(["replyMessage", "patchMessage"]);
+
+    const final = adapter.postThreadState(target, {
+      kind: "final",
+      reason: "done",
+    });
+    await flushAsyncHandlers();
+    expect(calls.map((call) => (call as { operation?: string }).operation)).toEqual(["replyMessage", "patchMessage"]);
+
+    releaseFirstPatch?.();
+    await Promise.all([blocked, final]);
+
+    expect(calls.map((call) => (call as { operation?: string }).operation)).toEqual(["replyMessage", "patchMessage", "patchMessage"]);
+    expect(calls[2]).toEqual({
+      operation: "patchMessage",
+      options: expect.objectContaining({
+        content: expect.objectContaining({
+          header: expect.objectContaining({
+            template: "green",
+            title: expect.objectContaining({
+              content: "Codex finished",
+            }),
+          }),
+        }),
+      }),
+    });
+  });
+
   it("falls back to a fresh Feishu turn-state card when patching the previous card fails", async () => {
     const calls: unknown[] = [];
     const adapter = new FeishuPlatformAdapter({
@@ -143,6 +262,7 @@ describe("FeishuPlatformAdapter", () => {
         patchMessageError: new Error("expired card"),
       }),
       wsClient: new FakeWsClient(),
+      stateCardPatchDebounceMs: 0,
     });
     const target = {
       platform: "feishu" as const,
@@ -1856,8 +1976,10 @@ function createFakeApi(
   options?: {
     readonly listMessages?: unknown;
     readonly patchMessageError?: unknown;
+    readonly firstPatchBlocker?: Promise<void> | undefined;
   },
 ) {
+  let patchCount = 0;
   return {
     replyMessage: async (options: unknown) => {
       calls.push({ operation: "replyMessage", options });
@@ -1869,6 +1991,10 @@ function createFakeApi(
     },
     patchMessage: async (payload: unknown) => {
       calls.push({ operation: "patchMessage", options: payload });
+      patchCount += 1;
+      if (patchCount === 1 && options?.firstPatchBlocker) {
+        await options.firstPatchBlocker;
+      }
       if (options?.patchMessageError) {
         throw options.patchMessageError;
       }
