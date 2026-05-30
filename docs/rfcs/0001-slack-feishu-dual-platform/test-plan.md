@@ -21,6 +21,7 @@ pnpm test
 pnpm test:e2e:feishu-mock
 pnpm rfc:feishu-audit -- --json
 pnpm rfc:feishu-test-plan -- --json
+pnpm rfc:feishu-completion-audit -- --json
 pnpm manual:codex-coding-smoke -- --json
 pnpm manual:feishu-smoke -- --status-file evidence/feishu-smoke/admin-status.json --setup-evidence-file evidence/feishu-smoke/feishu-setup-evidence.json --output-dir evidence/feishu-smoke --json
 ```
@@ -73,6 +74,7 @@ pnpm manual:feishu-smoke -- --status-file evidence/feishu-smoke/admin-status.jso
 
 - [ ] Confirm Slack Socket Mode and Feishu long connection are both ready in one rollout runtime.
 - [ ] Run `pnpm manual:codex-coding-smoke -- --json`; complete when a real Codex app-server turn edits `target.txt`, runs `node check.mjs`, and reports `ok=true`.
+- [ ] Run `pnpm rfc:feishu-completion-audit -- --json`; complete only when Slack self-regression drive, Feishu self-regression observe, and real Codex coding smoke bundles are all present and sanitized.
 - [ ] Confirm Feishu setup evidence records China Feishu, bot identity, `im:message.group_msg=approved`, send-as-bot, card callback, and resource transfer posture without secrets.
 - [ ] In the real Feishu group, @bot starts or resumes a session and the broker posts a final text reply.
 - [ ] In the same active Feishu session, send a non-@ follow-up and prove it reaches the same session.

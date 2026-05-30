@@ -71,6 +71,9 @@ describe("RFC 0001 documentation", () => {
     expect(content).toContain("FEISHU_SELF_REGRESSION_MANUAL_ACTION");
     expect(content).toContain("The shared `manual:self-regression` entrypoint is wired");
     expect(content).toContain("Feishu drive remains");
+    expect(content).toContain("pnpm rfc:feishu-completion-audit -- --json");
+    expect(content).toContain("Completion audit remains red until");
+    expect(content).toContain("Slack drive, Feishu observe, and real Codex coding smoke bundles are present");
   });
 
   it("keeps completion evidence progressive after real-tenant signoff", async () => {
@@ -80,6 +83,7 @@ describe("RFC 0001 documentation", () => {
     expect(reviewGates).toContain("Local evidence now");
     expect(reviewGates).toContain("Real tenant gate still required");
     expect(reviewGates).toContain("pnpm rfc:feishu-audit");
+    expect(reviewGates).toContain("pnpm rfc:feishu-completion-audit -- --json");
     expect(reviewGates).toContain("local gates and saved real-tenant evidence pass");
     expect(reviewGates).toContain("future drift should be treated as incomplete until both sides pass again");
     expect(reviewGates).toContain("pnpm test:e2e:feishu-mock");

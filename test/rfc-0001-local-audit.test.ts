@@ -13,6 +13,7 @@ const requiredScripts = {
   "manual:self-regression": "tsx test/manual/run-self-regression.ts --",
   "rfc:feishu-audit": "tsx test/manual/run-rfc-0001-local-audit.ts",
   "rfc:feishu-audit:local": "tsx test/manual/run-rfc-0001-local-audit.ts -- --local-only",
+  "rfc:feishu-completion-audit": "tsx test/manual/run-rfc-0001-completion-audit.ts",
   "rfc:feishu-test-plan": "tsx test/manual/run-rfc-0001-test-plan.ts",
   "ops:auth:real": "node scripts/ops/auth-real.mjs",
   "ops:auth:profiles": "node scripts/ops/auth-profiles.mjs",

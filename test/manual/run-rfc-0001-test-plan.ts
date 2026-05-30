@@ -65,11 +65,12 @@ const EXPECTED_ACCEPTANCE_COMMANDS = [
   "pnpm test:e2e:feishu-mock",
   "pnpm rfc:feishu-audit -- --json",
   "pnpm rfc:feishu-test-plan -- --json",
+  "pnpm rfc:feishu-completion-audit -- --json",
   "pnpm manual:codex-coding-smoke -- --json",
   "pnpm manual:feishu-smoke -- --status-file evidence/feishu-smoke/admin-status.json --setup-evidence-file evidence/feishu-smoke/feishu-setup-evidence.json --output-dir evidence/feishu-smoke --json",
 ];
 
-const EXPECTED_LAYER2_COMMANDS = EXPECTED_ACCEPTANCE_COMMANDS.filter((command) => !command.startsWith("pnpm manual:"));
+const EXPECTED_LAYER2_COMMANDS = EXPECTED_ACCEPTANCE_COMMANDS.filter((command) => !command.startsWith("pnpm manual:") && !command.startsWith("pnpm rfc:feishu-completion-audit"));
 
 const EXPECTED_CAPABILITIES = [
   "Runtime readiness",

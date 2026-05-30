@@ -397,6 +397,8 @@ Current command shape:
 - `pnpm manual:self-regression -- --platform feishu --preflight --env-file .env.local --json`
 - `pnpm manual:self-regression -- --platform feishu --observe --manual-action "operator sent @bot + non-@ follow-up in test group" --setup-evidence-file evidence/feishu-smoke/feishu-setup-evidence.json --output-dir evidence/self-regression/feishu --json`
 - `pnpm manual:self-regression -- --status-file evidence/self-regression/<platform>/admin-status.json --output-dir evidence/self-regression/<platform> --json`
+- `pnpm manual:codex-coding-smoke -- --output-dir evidence/codex-coding-smoke --json`
+- `pnpm rfc:feishu-completion-audit -- --json`
 
 The shared `manual:self-regression` entrypoint is wired for Slack/Feishu
 preflight, saved admin-status replay, live admin observe, and Slack channel
@@ -409,7 +411,9 @@ explicitly blocked until a human/browser/test-user driver exists; use Feishu
 observe mode after the manual group actions until then. Feishu observe must
 include `--manual-action` or `FEISHU_SELF_REGRESSION_MANUAL_ACTION`; otherwise
 the report fails closed because broad admin logs alone do not prove which
-operator action produced the inbound event.
+operator action produced the inbound event. Completion audit remains red until
+Slack drive, Feishu observe, and real Codex coding smoke bundles are present,
+sanitized, and replayable.
 
 Automation rules:
 

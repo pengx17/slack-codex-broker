@@ -16,6 +16,7 @@ const EXPECTED_CONTENT = "REAL_CODEX_CODING_SMOKE_OK";
 interface CliOptions {
   readonly json: boolean;
   readonly keepWorkspace: boolean;
+  readonly outputDir?: string | undefined;
   readonly timeoutMs: number;
 }
 
@@ -114,6 +115,12 @@ async function main(): Promise<void> {
   }
 
   printReport(report, options.json);
+  if (options.outputDir) {
+    const reportFile = await writeCodingSmokeBundle(options.outputDir, report);
+    if (!options.json) {
+      console.log(`wrote coding smoke bundle: ${path.basename(reportFile)}`);
+    }
+  }
   if (report.ok && !options.keepWorkspace) {
     await fs.rm(root, { force: true, recursive: true });
   }
@@ -180,7 +187,12 @@ async function restorePath(filePath: string, snapshot: PathSnapshot): Promise<vo
 
 function parseArgs(argv: readonly string[]): CliOptions {
   const args = [...argv];
-  const options = {
+  const options: {
+    json: boolean;
+    keepWorkspace: boolean;
+    outputDir?: string | undefined;
+    timeoutMs: number;
+  } = {
     json: false,
     keepWorkspace: false,
     timeoutMs: 180_000,
@@ -195,6 +207,17 @@ function parseArgs(argv: readonly string[]): CliOptions {
     }
     if (arg === "--keep-workspace") {
       options.keepWorkspace = true;
+      continue;
+    }
+    if (arg === "--output-dir") {
+      const value = args[index + 1];
+      if (!value) throw new Error("Missing value for --output-dir");
+      options.outputDir = value;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--output-dir=")) {
+      options.outputDir = arg.slice("--output-dir=".length);
       continue;
     }
     if (arg === "--timeout-ms") {
@@ -260,18 +283,37 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
 }
 
 function printReport(report: CodingSmokeReport, json: boolean): void {
+  const sanitized = sanitizeCodingSmokeReport(report);
   if (json) {
-    console.log(JSON.stringify(report, null, 2));
+    console.log(JSON.stringify(sanitized, null, 2));
     return;
   }
 
-  console.log(`Real Codex coding smoke: ${report.ok ? "ok" : "failed"}`);
-  console.log(`workspace: ${report.workspacePath}`);
-  if (report.workspaceRetained) console.log("workspace retained: true");
-  console.log(`expected: ${report.expectedContent}`);
-  console.log(`actual: ${report.actualContent ?? "missing"}`);
-  if (report.checkStdout) console.log(`check: ${report.checkStdout}`);
-  if (report.error) console.log(`error: ${report.error}`);
+  console.log(`Real Codex coding smoke: ${sanitized.ok ? "ok" : "failed"}`);
+  console.log(`workspace: ${sanitized.workspacePath}`);
+  if (sanitized.workspaceRetained) console.log("workspace retained: true");
+  console.log(`expected: ${sanitized.expectedContent}`);
+  console.log(`actual: ${sanitized.actualContent ?? "missing"}`);
+  if (sanitized.checkStdout) console.log(`check: ${sanitized.checkStdout}`);
+  if (sanitized.error) console.log(`error: ${sanitized.error}`);
+}
+
+async function writeCodingSmokeBundle(outputDir: string, report: CodingSmokeReport): Promise<string> {
+  await fs.mkdir(outputDir, { recursive: true });
+  const reportFile = path.join(outputDir, "codex-coding-smoke-report.json");
+  await fs.writeFile(reportFile, `${JSON.stringify(sanitizeCodingSmokeReport(report), null, 2)}\n`);
+  return reportFile;
+}
+
+function sanitizeCodingSmokeReport(report: CodingSmokeReport): CodingSmokeReport {
+  return {
+    ...report,
+    workspacePath: sanitizeCodingSmokeReportText(report.workspacePath),
+    actualContent: report.actualContent ? sanitizeCodingSmokeReportText(report.actualContent) : report.actualContent,
+    finalMessage: sanitizeCodingSmokeReportText(report.finalMessage),
+    checkStdout: sanitizeCodingSmokeReportText(report.checkStdout),
+    error: report.error ? sanitizeCodingSmokeReportText(report.error) : undefined,
+  };
 }
 
 function formatError(error: unknown): string {
