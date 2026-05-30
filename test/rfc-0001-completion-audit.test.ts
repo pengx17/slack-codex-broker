@@ -21,7 +21,7 @@ const verifierEnv = {
 } satisfies Record<string, string>;
 
 describe("RFC 0001 completion audit", () => {
-  it("fails closed when self-regression and real Codex coding smoke bundles are missing", async () => {
+  it("fails closed until Slack drive and real Codex coding smoke bundles are present", async () => {
     const report = await collectRfc0001CompletionAudit({ env: verifierEnv });
 
     expect(report.ok).toBe(false);
@@ -36,8 +36,8 @@ describe("RFC 0001 completion audit", () => {
         }),
         expect.objectContaining({
           id: "completion.feishu_self_regression_observe",
-          status: "missing",
-          evidence: expect.arrayContaining(["missing=evidence/self-regression/feishu/self-regression-report.json"]),
+          status: "pass",
+          evidence: expect.arrayContaining(["present=evidence/self-regression/feishu/self-regression-report.json", "platform=feishu", "mode=observe", "feishu.observe.manual_action_provenance=pass"]),
         }),
         expect.objectContaining({
           id: "completion.codex_coding_smoke",
