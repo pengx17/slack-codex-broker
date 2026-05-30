@@ -21,7 +21,7 @@ const verifierEnv = {
 } satisfies Record<string, string>;
 
 describe("RFC 0001 completion audit", () => {
-  it("fails closed until Slack drive and real Codex coding smoke bundles are present", async () => {
+  it("fails closed until Slack drive evidence is present", async () => {
     const report = await collectRfc0001CompletionAudit({ env: verifierEnv });
 
     expect(report.ok).toBe(false);
@@ -41,8 +41,8 @@ describe("RFC 0001 completion audit", () => {
         }),
         expect.objectContaining({
           id: "completion.codex_coding_smoke",
-          status: "missing",
-          evidence: expect.arrayContaining(["missing=evidence/codex-coding-smoke/codex-coding-smoke-report.json"]),
+          status: "pass",
+          evidence: expect.arrayContaining(["present=evidence/codex-coding-smoke/codex-coding-smoke-report.json", "expectedContent=REAL_CODEX_CODING_SMOKE_OK", "checkStdout=coding smoke passed"]),
         }),
       ]),
     );

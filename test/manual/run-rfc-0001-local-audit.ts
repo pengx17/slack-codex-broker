@@ -421,7 +421,7 @@ export const RFC0001_REQUIRED_LOCAL_EVIDENCE_PATTERNS: ReadonlyArray<{
   {
     id: "completion.final_gate",
     file: "test/rfc-0001-completion-audit.test.ts",
-    snippets: ["fails closed until Slack drive and real Codex coding smoke bundles are present", "passes for sanitized self-regression and coding smoke evidence bundles"],
+    snippets: ["fails closed until Slack drive evidence is present", "passes for sanitized self-regression and coding smoke evidence bundles"],
   },
 ];
 

@@ -508,11 +508,11 @@ function formatStartupDetails(stdoutTail: string, stderrTail: string): string {
 }
 
 async function pointSymlink(linkPath: string, targetPath: string): Promise<void> {
-  const desiredTarget = path.relative(path.dirname(linkPath), targetPath);
+  const desiredTarget = path.resolve(targetPath);
   try {
     const currentTarget = await fs.readlink(linkPath);
     const resolvedCurrent = path.resolve(path.dirname(linkPath), currentTarget);
-    if (path.resolve(resolvedCurrent) === path.resolve(targetPath)) {
+    if (resolvedCurrent === desiredTarget) {
       return;
     }
   } catch (error) {

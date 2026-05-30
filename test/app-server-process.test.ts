@@ -165,6 +165,7 @@ describe("AppServerProcess", () => {
     const fakeGhPath = path.join(fakeBinDir, "gh");
     const appEnvFile = path.join(tempRoot, "app-env.txt");
     const gitEnvFile = path.join(tempRoot, "git-env.txt");
+    const authSourcePath = path.join(tempRoot, "host-auth.json");
     const operatorHome = path.join(tempRoot, "operator-home");
     const codexHome = path.join(tempRoot, "auth-profile-runtimes", "profile-a", "codex-home");
     const hostCodexHomePath = path.join(tempRoot, "host-codex-home");
@@ -181,6 +182,7 @@ describe("AppServerProcess", () => {
     await fs.mkdir(operatorHome, { recursive: true });
     await fs.mkdir(hostCodexHomePath, { recursive: true });
     await fs.mkdir(hostGeminiHomePath, { recursive: true });
+    await fs.writeFile(authSourcePath, '{"tokens":{"account_id":"acc-test"}}\n');
 
     await fs.writeFile(
       fakeCodexPath,
@@ -219,6 +221,7 @@ describe("AppServerProcess", () => {
       port: 4592,
       hostCodexHomePath,
       hostGeminiHomePath,
+      authJsonPath: authSourcePath,
       tempadLinkServiceUrl: tempadServer.url,
     });
 
@@ -250,6 +253,7 @@ describe("AppServerProcess", () => {
         GITHUB_TOKEN: "",
         BROKER_DEFAULT_GITHUB_TOKEN: "",
       });
+      expect(await fs.readlink(path.join(codexHome, "auth.json"))).toBe(authSourcePath);
     } finally {
       await processManager.stop().catch(() => {});
       await tempadServer.close().catch(() => {});
