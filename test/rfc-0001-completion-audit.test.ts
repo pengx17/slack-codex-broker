@@ -22,30 +22,60 @@ const verifierEnv = {
 
 describe("RFC 0001 completion audit", () => {
   it("fails closed until Slack drive evidence is present", async () => {
-    const report = await collectRfc0001CompletionAudit({ env: verifierEnv });
-
-    expect(report.ok).toBe(false);
-    expect(report.checks).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: "completion.rfc_audit_full", status: "pass" }),
-        expect.objectContaining({ id: "completion.test_plan_verified", status: "pass" }),
-        expect.objectContaining({
-          id: "completion.slack_self_regression_drive",
-          status: "missing",
-          evidence: expect.arrayContaining(["missing=evidence/self-regression/slack/self-regression-report.json"]),
-        }),
-        expect.objectContaining({
-          id: "completion.feishu_self_regression_observe",
-          status: "pass",
-          evidence: expect.arrayContaining(["present=evidence/self-regression/feishu/self-regression-report.json", "platform=feishu", "mode=observe", "feishu.observe.manual_action_provenance=pass"]),
-        }),
-        expect.objectContaining({
-          id: "completion.codex_coding_smoke",
-          status: "pass",
-          evidence: expect.arrayContaining(["present=evidence/codex-coding-smoke/codex-coding-smoke-report.json", "expectedContent=REAL_CODEX_CODING_SMOKE_OK", "checkStdout=coding smoke passed"]),
-        }),
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "rfc-completion-audit-missing-slack-"));
+    await writeJson(
+      path.join(root, "evidence", "self-regression", "feishu", "self-regression-report.json"),
+      selfRegressionReport("feishu", "observe", "operator sent @bot plus non-at follow-up in test group", [
+        "feishu.observe.manual_action_provenance",
+        "runtime.feishu_ready",
+        "feishu.long_connection_ready",
+        "feishu.all_message_verified",
+        "feishu.non_at_followup",
+        "feishu.outbound_rich_card_file",
+        "feishu.card_callback",
+        "feishu.coauthor_card",
       ]),
     );
+    await writeJson(path.join(root, "evidence", "codex-coding-smoke", "codex-coding-smoke-report.json"), {
+      ok: true,
+      workspacePath: "codex-coding-smoke-test/workspace",
+      workspaceRetained: false,
+      expectedContent: "REAL_CODEX_CODING_SMOKE_OK",
+      actualContent: "REAL_CODEX_CODING_SMOKE_OK\n",
+      finalMessage: "CODING_SMOKE_DONE",
+      checkStdout: "coding smoke passed",
+    });
+
+    try {
+      const report = await collectRfc0001CompletionAudit({
+        cwd: root,
+        env: verifierEnv,
+        includeBaseAudits: false,
+      });
+
+      expect(report.ok).toBe(false);
+      expect(report.checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "completion.slack_self_regression_drive",
+            status: "missing",
+            evidence: expect.arrayContaining(["missing=evidence/self-regression/slack/self-regression-report.json"]),
+          }),
+          expect.objectContaining({
+            id: "completion.feishu_self_regression_observe",
+            status: "pass",
+            evidence: expect.arrayContaining(["present=evidence/self-regression/feishu/self-regression-report.json", "platform=feishu", "mode=observe", "feishu.observe.manual_action_provenance=pass"]),
+          }),
+          expect.objectContaining({
+            id: "completion.codex_coding_smoke",
+            status: "pass",
+            evidence: expect.arrayContaining(["present=evidence/codex-coding-smoke/codex-coding-smoke-report.json", "expectedContent=REAL_CODEX_CODING_SMOKE_OK", "checkStdout=coding smoke passed"]),
+          }),
+        ]),
+      );
+    } finally {
+      await fs.rm(root, { force: true, recursive: true });
+    }
   });
 
   it("passes for sanitized self-regression and coding smoke evidence bundles", async () => {
