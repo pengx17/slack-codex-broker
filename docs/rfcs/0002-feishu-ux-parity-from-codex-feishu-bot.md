@@ -395,7 +395,11 @@ Current command shape:
 
 The shared `manual:self-regression` entrypoint is wired for Slack/Feishu
 preflight, saved admin-status replay, live admin observe, and Slack channel
-drive where credentials and a running broker are available. Feishu drive remains
+drive where credentials and a running broker are available. Slack drive accepts
+either a safe `#channel` label or a Slack channel id. If the user token cannot
+list channels, the runner may resolve the channel with the bot token, but the
+inbound message still requires a user-capable token that can call
+`chat.postMessage` in the configured test channel. Feishu drive remains
 explicitly blocked until a human/browser/test-user driver exists; use Feishu
 observe mode after the manual group actions until then.
 
@@ -407,7 +411,11 @@ Automation rules:
       production channel. The current local channel is private operator
       configuration, not an RFC constant.
 - [ ] Slack auto-drive must create a controlled inbound message, observe the
-      broker reply/state update, and write a sanitized evidence bundle.
+      broker reply/state update, exercise `/chat/post-file`, and write a
+      sanitized evidence bundle.
+- [ ] Slack auto-drive must fail closed with the Slack API `needed`/`provided`
+      scope posture when the configured token cannot post the controlled user
+      message.
 - [ ] Feishu observe mode may be accepted as interim evidence only if it clearly
       says which human/browser action produced the inbound event.
 - [ ] Feishu auto-drive requires a separate driver design. A bot sending a

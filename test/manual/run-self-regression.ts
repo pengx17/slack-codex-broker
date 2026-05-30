@@ -64,6 +64,7 @@ interface CollectOptions {
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:3000";
 const SAFE_CHANNEL_NAME = /^#[A-Za-z0-9][A-Za-z0-9._-]*$/u;
+const SAFE_CHANNEL_ID = /^[CDG][A-Z0-9]{8,}$/u;
 
 export async function collectSelfRegressionReport(options: CliOptions, collectOptions: CollectOptions = {}): Promise<SelfRegressionReport> {
   const cwd = collectOptions.cwd ?? process.cwd();
@@ -192,9 +193,9 @@ export function evaluateSlackSelfRegressionPreflight(options: Pick<CliOptions, "
       id: "preflight.slack_channel_safe_label",
       label: "Slack self-regression channel evidence is safe to attach",
       required: true,
-      passed: !channel || SAFE_CHANNEL_NAME.test(channel.trim()),
+      passed: !channel || isSafeSlackChannelInput(channel),
       evidence: [`channel_label=${formatSlackChannelEvidence(channel)}`],
-      nextAction: "Use a channel label such as #xp-test in evidence; do not paste private URLs, tokens, or message bodies.",
+      nextAction: "Use a channel label such as #xp-test or a Slack channel id; do not paste private URLs, tokens, or message bodies.",
     }),
   ];
 
@@ -306,15 +307,31 @@ async function driveSlackSelfRegression(options: CliOptions, env: Record<string,
 
   try {
     const botUserId = await fetchSlackBotUserId(env.SLACK_BOT_TOKEN!, fetchFn);
-    const channelId = await resolveSlackChannelId({
-      token: env.SLACK_USER_TOKEN!,
+    const resolvedChannel = await resolveSlackChannelId({
+      tokens: [
+        {
+          label: "user",
+          token: env.SLACK_USER_TOKEN!,
+        },
+        {
+          label: "bot",
+          token: env.SLACK_BOT_TOKEN!,
+        },
+      ],
       channel: channel!,
       fetch: fetchFn,
     });
     const message = await postSlackDriveMessage({
       token: env.SLACK_USER_TOKEN!,
-      channel: channelId,
+      channel: resolvedChannel.id,
       text: `<@${botUserId}> self-regression ${Date.now()} reply with SELF_REGRESSION_OK`,
+      fetch: fetchFn,
+    });
+    const file = await postSlackDriveFile({
+      baseUrl: options.baseUrl,
+      platform: "slack",
+      conversationId: resolvedChannel.id,
+      rootMessageId: message.ts,
       fetch: fetchFn,
     });
     return [
@@ -323,7 +340,14 @@ async function driveSlackSelfRegression(options: CliOptions, env: Record<string,
         label: "Slack drive posted a controlled user message",
         required: true,
         status: "pass",
-        evidence: [`channel=${formatSlackChannelEvidence(channel)}`, `ts=${sanitizeEvidenceText(message.ts)}`],
+        evidence: [`channel=${formatSlackChannelEvidence(channel)}`, `channel_resolved_by=${resolvedChannel.resolvedBy}`, `ts=${sanitizeEvidenceText(message.ts)}`],
+      },
+      {
+        id: "slack.drive.file_posted",
+        label: "Slack drive exercised a controlled file upload",
+        required: true,
+        status: "pass",
+        evidence: [`channel=${formatSlackChannelEvidence(channel)}`, `rootMessageId=${sanitizeEvidenceText(message.ts)}`, `file=${file}`],
       },
     ];
   } catch (error) {
@@ -340,43 +364,51 @@ async function driveSlackSelfRegression(options: CliOptions, env: Record<string,
   }
 }
 
-async function resolveSlackChannelId(options: { readonly token: string; readonly channel: string; readonly fetch: typeof fetch }): Promise<string> {
+async function resolveSlackChannelId(options: { readonly tokens: ReadonlyArray<{ readonly label: string; readonly token: string }>; readonly channel: string; readonly fetch: typeof fetch }): Promise<{ readonly id: string; readonly resolvedBy: string }> {
   const trimmed = options.channel.trim();
   if (!trimmed.startsWith("#")) {
-    return trimmed;
+    return { id: trimmed, resolvedBy: "direct" };
   }
 
   const targetName = trimmed.slice(1).toLowerCase();
-  let cursor: string | undefined;
-  do {
-    const params = new URLSearchParams({
-      exclude_archived: "true",
-      limit: "200",
-      types: "public_channel,private_channel",
-    });
-    if (cursor) {
-      params.set("cursor", cursor);
+  const errors: string[] = [];
+  for (const credential of options.tokens) {
+    let cursor: string | undefined;
+    try {
+      do {
+        const params = new URLSearchParams({
+          exclude_archived: "true",
+          limit: "200",
+          types: "public_channel,private_channel",
+        });
+        if (cursor) {
+          params.set("cursor", cursor);
+        }
+        const response = await options.fetch(`https://slack.com/api/conversations.list?${params.toString()}`, {
+          headers: {
+            authorization: `Bearer ${credential.token}`,
+          },
+        });
+        const payload = asRecord(await response.json());
+        if (!response.ok || payload.ok !== true) {
+          throw new Error(formatSlackApiFailure("conversations.list", response.status, payload));
+        }
+        const channel = asArray(payload.channels)
+          .map(asRecord)
+          .find((item) => readString(item.name)?.toLowerCase() === targetName || readString(item.name_normalized)?.toLowerCase() === targetName);
+        const id = readString(channel?.id);
+        if (id) {
+          return { id, resolvedBy: credential.label };
+        }
+        cursor = readString(asRecord(payload.response_metadata).next_cursor);
+      } while (cursor);
+    } catch (error) {
+      errors.push(`${credential.label}:${formatFeishuSmokeCliError(error)}`);
     }
-    const response = await options.fetch(`https://slack.com/api/conversations.list?${params.toString()}`, {
-      headers: {
-        authorization: `Bearer ${options.token}`,
-      },
-    });
-    const payload = asRecord(await response.json());
-    if (!response.ok || payload.ok !== true) {
-      throw new Error(`Slack conversations.list failed: ${readString(payload.error) ?? response.status}`);
-    }
-    const channel = asArray(payload.channels)
-      .map(asRecord)
-      .find((item) => readString(item.name)?.toLowerCase() === targetName || readString(item.name_normalized)?.toLowerCase() === targetName);
-    const id = readString(channel?.id);
-    if (id) {
-      return id;
-    }
-    cursor = readString(asRecord(payload.response_metadata).next_cursor);
-  } while (cursor);
+  }
 
-  throw new Error(`Slack channel label was not found: ${trimmed}`);
+  const suffix = errors.length > 0 ? ` (${errors.join("; ")})` : "";
+  throw new Error(`Slack channel label was not found: ${trimmed}${suffix}`);
 }
 
 async function fetchSlackBotUserId(token: string, fetchFn: typeof fetch): Promise<string> {
@@ -412,13 +444,50 @@ async function postSlackDriveMessage(options: { readonly token: string; readonly
   });
   const payload = asRecord(await response.json());
   if (!response.ok || payload.ok !== true) {
-    throw new Error(`Slack chat.postMessage failed: ${readString(payload.error) ?? response.status}`);
+    throw new Error(formatSlackApiFailure("chat.postMessage", response.status, payload));
   }
   const ts = readString(payload.ts);
   if (!ts) {
     throw new Error("Slack chat.postMessage did not return message timestamp");
   }
   return { ts };
+}
+
+async function postSlackDriveFile(options: { readonly baseUrl: string; readonly platform: "slack"; readonly conversationId: string; readonly rootMessageId: string; readonly fetch: typeof fetch }): Promise<string> {
+  const response = await options.fetch(`${options.baseUrl.replace(/\/+$/u, "")}/chat/post-file`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({
+      platform: options.platform,
+      conversation_id: options.conversationId,
+      root_message_id: options.rootMessageId,
+      content_base64: Buffer.from("Slack self-regression artifact\n", "utf8").toString("base64"),
+      filename: "self-regression.txt",
+      title: "self-regression.txt",
+      content_type: "text/plain",
+      initial_comment: "self-regression artifact",
+    }),
+  });
+  const payload = asRecord(await response.json().catch(() => null));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(`broker /chat/post-file failed: ${readString(payload.error) ?? response.status}`);
+  }
+  return "self-regression.txt";
+}
+
+function formatSlackApiFailure(method: string, status: number, payload: Record<string, unknown>): string {
+  const parts = [`Slack ${method} failed: ${readString(payload.error) ?? status}`];
+  const needed = readString(payload.needed);
+  const provided = readString(payload.provided);
+  if (needed) {
+    parts.push(`needed=${needed}`);
+  }
+  if (provided) {
+    parts.push(`provided=${provided}`);
+  }
+  return parts.join(" ");
 }
 
 async function fetchAdminStatusWithRetry(options: CliOptions, fetchFn: typeof fetch): Promise<unknown> {
@@ -656,7 +725,18 @@ function formatSlackChannelEvidence(channel: string | undefined): string {
   if (!trimmed) {
     return "missing";
   }
-  return SAFE_CHANNEL_NAME.test(trimmed) ? trimmed : "configured";
+  if (SAFE_CHANNEL_NAME.test(trimmed)) {
+    return trimmed;
+  }
+  if (SAFE_CHANNEL_ID.test(trimmed)) {
+    return "channel_id";
+  }
+  return "configured";
+}
+
+function isSafeSlackChannelInput(channel: string): boolean {
+  const trimmed = channel.trim();
+  return SAFE_CHANNEL_NAME.test(trimmed) || SAFE_CHANNEL_ID.test(trimmed);
 }
 
 function sanitizeCommand(parts: readonly string[]): string {

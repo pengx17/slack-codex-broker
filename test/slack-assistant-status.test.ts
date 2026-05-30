@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { logger } from "../src/logger.js";
 import { SlackAssistantStatusController } from "../src/services/slack/slack-assistant-status.js";
 
 describe("SlackAssistantStatusController", () => {
@@ -9,6 +10,7 @@ describe("SlackAssistantStatusController", () => {
   });
 
   it("maps assistant execution state into a Slack status label", async () => {
+    const logInfo = vi.spyOn(logger, "info").mockImplementation(() => undefined);
     const setAssistantThreadStatus = vi.fn(async () => undefined);
 
     const controller = new SlackAssistantStatusController({
@@ -32,6 +34,12 @@ describe("SlackAssistantStatusController", () => {
         threadTs: "111.222",
         status: "Reading files...",
       });
+    });
+    expect(logInfo).toHaveBeenCalledWith("slack.assistant.status.updated", {
+      platform: "slack",
+      sessionKey: "C123:111.222",
+      conversationId: "C123",
+      rootMessageId: "111.222",
     });
   });
 
@@ -90,6 +98,7 @@ describe("SlackAssistantStatusController", () => {
   });
 
   it("falls back to an eyes reaction when assistant thread status is unavailable", async () => {
+    const logInfo = vi.spyOn(logger, "info").mockImplementation(() => undefined);
     const addReaction = vi.fn(async () => undefined);
     const removeReaction = vi.fn(async () => undefined);
 
@@ -114,6 +123,13 @@ describe("SlackAssistantStatusController", () => {
         name: "eyes",
       });
     });
+    expect(logInfo).toHaveBeenCalledWith("slack.assistant.fallback_reaction.updated", {
+      platform: "slack",
+      sessionKey: "C123:111.222",
+      conversationId: "C123",
+      rootMessageId: "111.222",
+      active: true,
+    });
 
     controller.clear();
 
@@ -123,6 +139,13 @@ describe("SlackAssistantStatusController", () => {
         timestamp: "111.222",
         name: "eyes",
       });
+    });
+    expect(logInfo).toHaveBeenCalledWith("slack.assistant.fallback_reaction.updated", {
+      platform: "slack",
+      sessionKey: "C123:111.222",
+      conversationId: "C123",
+      rootMessageId: "111.222",
+      active: false,
     });
   });
 

@@ -247,6 +247,12 @@ export class SlackAssistantStatusController {
         threadTs: this.#threadTs,
         status,
       });
+      logger.info(status.trim() ? "slack.assistant.status.updated" : "slack.assistant.status.cleared", {
+        platform: "slack",
+        sessionKey: `${this.#channelId}:${this.#threadTs}`,
+        conversationId: this.#channelId,
+        rootMessageId: this.#threadTs,
+      });
       await this.#clearFallbackReactionIfNeeded();
       return true;
     } catch (error) {
@@ -277,6 +283,13 @@ export class SlackAssistantStatusController {
           name: FALLBACK_REACTION_NAME,
         });
         this.#reactionActive = true;
+        logger.info("slack.assistant.fallback_reaction.updated", {
+          platform: "slack",
+          sessionKey: `${this.#channelId}:${this.#threadTs}`,
+          conversationId: this.#channelId,
+          rootMessageId: this.#threadTs,
+          active: true,
+        });
       } catch (error) {
         if (!isSlackApiError(error, "already_reacted")) {
           logger.warn("Failed to add Slack assistant fallback reaction", {
@@ -287,6 +300,13 @@ export class SlackAssistantStatusController {
           return;
         }
         this.#reactionActive = true;
+        logger.info("slack.assistant.fallback_reaction.updated", {
+          platform: "slack",
+          sessionKey: `${this.#channelId}:${this.#threadTs}`,
+          conversationId: this.#channelId,
+          rootMessageId: this.#threadTs,
+          active: true,
+        });
       }
     }
 
@@ -308,6 +328,13 @@ export class SlackAssistantStatusController {
         }
       }
       this.#reactionActive = false;
+      logger.info("slack.assistant.fallback_reaction.updated", {
+        platform: "slack",
+        sessionKey: `${this.#channelId}:${this.#threadTs}`,
+        conversationId: this.#channelId,
+        rootMessageId: this.#threadTs,
+        active: false,
+      });
     }
   }
 
@@ -334,6 +361,13 @@ export class SlackAssistantStatusController {
     }
 
     this.#reactionActive = false;
+    logger.info("slack.assistant.fallback_reaction.updated", {
+      platform: "slack",
+      sessionKey: `${this.#channelId}:${this.#threadTs}`,
+      conversationId: this.#channelId,
+      rootMessageId: this.#threadTs,
+      active: false,
+    });
   }
 }
 

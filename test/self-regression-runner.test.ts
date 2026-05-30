@@ -31,6 +31,29 @@ describe("self-regression runner", () => {
         }),
       ]),
     );
+
+    const channelIdReport = evaluateSlackSelfRegressionPreflight(
+      {
+        mode: "preflight",
+        channel: "C0ALMF2AD70",
+      },
+      {
+        SLACK_APP_TOKEN: "xapp-secret-value",
+        SLACK_BOT_TOKEN: "xoxb-secret-value",
+        SLACK_USER_TOKEN: "xoxp-secret-value",
+      },
+    );
+
+    expect(channelIdReport.ok).toBe(true);
+    expect(channelIdReport.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "preflight.slack_channel_safe_label",
+          status: "pass",
+          evidence: ["channel_label=channel_id"],
+        }),
+      ]),
+    );
   });
 
   it("replays Slack admin status for roundtrip, status, and file evidence", () => {
@@ -209,6 +232,13 @@ describe("self-regression runner", () => {
         });
       }
       if (href.startsWith("https://slack.com/api/conversations.list")) {
+        const authorization = new Headers(init?.headers).get("authorization");
+        if (authorization === "Bearer xoxp-secret-value") {
+          return jsonResponse({
+            ok: false,
+            error: "missing_scope",
+          });
+        }
         return jsonResponse({
           ok: true,
           channels: [
@@ -231,6 +261,22 @@ describe("self-regression runner", () => {
         return jsonResponse({
           ok: true,
           ts: "111.222",
+        });
+      }
+      if (href === "http://127.0.0.1:3000/chat/post-file") {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        expect(body).toMatchObject({
+          platform: "slack",
+          conversation_id: "CXPTEST",
+          root_message_id: "111.222",
+          filename: "self-regression.txt",
+        });
+        expect(String(body.content_base64)).not.toContain("self-regression artifact");
+        return jsonResponse({
+          ok: true,
+          file: {
+            id: "F123",
+          },
         });
       }
       if (href === "http://127.0.0.1:3000/admin/api/status?platform=slack") {
@@ -267,9 +313,82 @@ describe("self-regression runner", () => {
           id: "slack.drive.message_posted",
           status: "pass",
         }),
+        expect.objectContaining({
+          id: "slack.drive.file_posted",
+          status: "pass",
+        }),
       ]),
     );
-    expect(calls).toEqual(expect.arrayContaining(["https://slack.com/api/auth.test", expect.stringContaining("https://slack.com/api/conversations.list"), "https://slack.com/api/chat.postMessage", "http://127.0.0.1:3000/admin/api/status?platform=slack"]));
+    expect(calls).toEqual(expect.arrayContaining(["https://slack.com/api/auth.test", expect.stringContaining("https://slack.com/api/conversations.list"), "https://slack.com/api/chat.postMessage", "http://127.0.0.1:3000/chat/post-file", "http://127.0.0.1:3000/admin/api/status?platform=slack"]));
+    expect(JSON.stringify(report)).not.toContain("secret-value");
+    expect(JSON.stringify(report)).toContain("channel_resolved_by=bot");
+  });
+
+  it("reports Slack posting scope posture when auto-drive cannot create the user message", async () => {
+    const fetch = async (url: string | URL) => {
+      const href = String(url);
+      if (href === "https://slack.com/api/auth.test") {
+        return jsonResponse({
+          ok: true,
+          user_id: "UBOT",
+        });
+      }
+      if (href.startsWith("https://slack.com/api/conversations.list")) {
+        return jsonResponse({
+          ok: true,
+          channels: [
+            {
+              id: "CXPTEST",
+              name: "xp-test",
+            },
+          ],
+          response_metadata: {
+            next_cursor: "",
+          },
+        });
+      }
+      if (href === "https://slack.com/api/chat.postMessage") {
+        return jsonResponse({
+          ok: false,
+          error: "missing_scope",
+          needed: "chat:write:bot",
+          provided: "identify,channels:history",
+        });
+      }
+      throw new Error(`unexpected fetch ${href}`);
+    };
+
+    const report = await collectSelfRegressionReport(
+      {
+        platform: "slack",
+        mode: "drive",
+        baseUrl: "http://127.0.0.1:3000",
+        channel: "#xp-test",
+        waitMs: 0,
+        intervalMs: 1000,
+        json: true,
+      },
+      {
+        fetch: fetch as typeof globalThis.fetch,
+        env: {
+          SLACK_APP_TOKEN: "xapp-secret-value",
+          SLACK_BOT_TOKEN: "xoxb-secret-value",
+          SLACK_USER_TOKEN: "xoxp-secret-value",
+        },
+        now: new Date("2026-05-30T00:00:00.000Z"),
+      },
+    );
+
+    expect(report.ok).toBe(false);
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "slack.drive.message_posted",
+          status: "fail",
+          evidence: ["Slack chat.postMessage failed: missing_scope needed=chat:write:bot provided=identify,channels:history"],
+        }),
+      ]),
+    );
     expect(JSON.stringify(report)).not.toContain("secret-value");
   });
 });
