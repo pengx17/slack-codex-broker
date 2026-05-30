@@ -55,6 +55,37 @@ describe("SessionAuthProfileRuntime", () => {
     expect(runtimes.has("low")).toBe(false);
   });
 
+  it("reserves the base app-server port for the Feishu legacy runtime", async () => {
+    const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), "session-auth-runtime-feishu-"));
+    tempDirs.push(dataRoot);
+    const config = loadConfig({
+      SLACK_APP_TOKEN: "xapp-test",
+      SLACK_BOT_TOKEN: "xoxb-test",
+      DATA_ROOT: dataRoot,
+      CODEX_APP_SERVER_PORT: "4591",
+      FEISHU_ENABLED: "true",
+      FEISHU_APP_ID: "cli_test",
+      FEISHU_APP_SECRET: "test-secret",
+      FEISHU_BOT_OPEN_ID: "ou_test",
+    } as NodeJS.ProcessEnv);
+    const session = createSession();
+    const sessions = createSessionManagerMock(session);
+    const profilePorts = new Map<string, number>();
+    const runtime = new SessionAuthProfileRuntime({
+      config,
+      sessions: sessions as never,
+      authProfiles: authProfilesMock(profileStatus([profile("primary", 10, 10)])) as never,
+      createProfileRuntime: ({ profile, port }) => {
+        profilePorts.set(profile.name, port);
+        return new MockAgentRuntime(profile.name);
+      },
+    });
+
+    await runtime.ensureSession(session);
+
+    expect(profilePorts.get("primary")).toBe(4592);
+  });
+
   it("keeps an existing usable binding instead of switching to a higher quota profile", async () => {
     const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), "session-auth-runtime-bound-"));
     tempDirs.push(dataRoot);

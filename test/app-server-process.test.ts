@@ -282,6 +282,80 @@ describe("AppServerProcess", () => {
     }
   });
 
+  it("coalesces concurrent app-server starts into one child process", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "broker-app-server-process-"));
+    const tempadServer = await startHealthyHttpServer();
+    const fakeBinDir = path.join(tempRoot, "bin");
+    const fakeCodexPath = path.join(fakeBinDir, "codex");
+    const fakeGitPath = path.join(fakeBinDir, "git");
+    const fakeGhPath = path.join(fakeBinDir, "gh");
+    const startsFile = path.join(tempRoot, "starts.txt");
+    const operatorHome = path.join(tempRoot, "operator-home");
+    const codexHome = path.join(tempRoot, "codex-home");
+    const hostCodexHomePath = path.join(tempRoot, "host-codex-home");
+    const hostGeminiHomePath = path.join(tempRoot, "host-gemini-home");
+    const previousEnv = {
+      PATH: process.env.PATH,
+      HOME: process.env.HOME,
+    };
+
+    await fs.mkdir(fakeBinDir, { recursive: true });
+    await fs.mkdir(operatorHome, { recursive: true });
+    await fs.mkdir(hostCodexHomePath, { recursive: true });
+    await fs.mkdir(hostGeminiHomePath, { recursive: true });
+
+    await fs.writeFile(
+      fakeCodexPath,
+      [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        'if [ "${1:-}" = "app-server" ]; then',
+        `  printf 'start\\n' >> ${shellQuote(startsFile)}`,
+        "  printf '%s\\n' 'codex app-server (WebSockets)' >&2",
+        "  printf '%s\\n' '  listening on: ws://127.0.0.1:4593' >&2",
+        "  while true; do sleep 1; done",
+        "fi",
+        'if [ "${1:-}" = "mcp" ]; then exit 0; fi',
+        "printf 'unexpected fake codex args: %s\\n' \"$*\" >&2",
+        "exit 1",
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    await fs.writeFile(fakeGitPath, "#!/usr/bin/env bash\nexit 0\n", { mode: 0o755 });
+    await fs.writeFile(fakeGhPath, "#!/usr/bin/env bash\nexit 0\n", { mode: 0o755 });
+    await fs.chmod(fakeCodexPath, 0o755);
+    await fs.chmod(fakeGitPath, 0o755);
+    await fs.chmod(fakeGhPath, 0o755);
+
+    process.env.PATH = `${fakeBinDir}:${previousEnv.PATH ?? ""}`;
+    process.env.HOME = operatorHome;
+
+    const processManager = new AppServerProcess({
+      brokerHttpBaseUrl: "http://127.0.0.1:3001",
+      codexHome,
+      port: 4593,
+      hostCodexHomePath,
+      hostGeminiHomePath,
+      tempadLinkServiceUrl: tempadServer.url,
+    });
+
+    try {
+      await Promise.all([processManager.start(), processManager.start()]);
+      expect((await fs.readFile(startsFile, "utf8")).trim().split("\n")).toEqual(["start"]);
+    } finally {
+      await processManager.stop().catch(() => {});
+      await tempadServer.close().catch(() => {});
+      process.env.PATH = previousEnv.PATH;
+      if (previousEnv.HOME === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = previousEnv.HOME;
+      }
+      await fs.rm(tempRoot, { force: true, recursive: true });
+    }
+  });
+
   it("finds app-server listeners in ps output when feature flags appear before --listen", () => {
     const output = [
       "123 /opt/homebrew/bin/codex app-server --disable apps --listen ws://127.0.0.1:4590",

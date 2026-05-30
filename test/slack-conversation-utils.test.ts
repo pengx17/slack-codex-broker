@@ -116,6 +116,40 @@ describe("slack conversation utils", () => {
     ).toBe(false);
   });
 
+  it("does not auto-recover Feishu sessions through Slack recovery", () => {
+    const nowMs = Date.parse("2026-04-08T12:00:00.000Z");
+
+    expect(
+      shouldAutoRecoverSession(
+        {
+          key: "feishu:b2NfZ3JvdXA:b21fcm9vdA",
+          platform: "feishu",
+          channelId: "oc_group",
+          rootThreadTs: "om_root",
+          workspacePath: "/tmp/workspace",
+          createdAt: "2026-04-08T00:00:00.000Z",
+          updatedAt: "2026-04-08T00:00:01.000Z",
+          lastObservedMessageTs: "om_latest",
+        },
+        nowMs,
+      ),
+    ).toBe(false);
+    expect(
+      shouldAutoRecoverSession(
+        {
+          key: "feishu:b2NfZ3JvdXA:b21fbGVnYWN5",
+          channelId: "oc_group",
+          rootThreadTs: "om_legacy",
+          workspacePath: "/tmp/workspace",
+          createdAt: "2026-04-08T00:00:00.000Z",
+          updatedAt: "2026-04-08T00:00:01.000Z",
+          lastObservedMessageTs: "om_latest",
+        },
+        nowMs,
+      ),
+    ).toBe(false);
+  });
+
   it("force-resets a stale idle runtime when open messages remain", () => {
     expect(
       shouldForceResetStaleIdleRuntime({

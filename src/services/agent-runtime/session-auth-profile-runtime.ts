@@ -61,7 +61,9 @@ export class SessionAuthProfileRuntime extends EventEmitter implements AgentRunt
     this.#sessions = options.sessions;
     this.#authProfiles = options.authProfiles;
     this.#legacyRuntime = options.legacyRuntime;
-    this.#nextPortOffset = options.legacyRuntime ? 1 : 0;
+    // Feishu still uses the shared legacy Codex broker, so profile runtimes must
+    // leave the base app-server port free when both platforms run together.
+    this.#nextPortOffset = options.legacyRuntime || options.config.feishuEnabled ? 1 : 0;
     this.#createProfileRuntime =
       options.createProfileRuntime ??
       ((runtimeOptions) =>

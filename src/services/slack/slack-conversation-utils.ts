@@ -48,6 +48,10 @@ export function isSlackMessageAfterCursor(messageTs: string, cursorTs?: string |
 }
 
 export function shouldAutoRecoverSession(session: SlackSessionRecord, nowMs: number): boolean {
+  if (!isSlackPlatformSession(session)) {
+    return false;
+  }
+
   if (!session.lastObservedMessageTs && !session.lastDeliveredMessageTs) {
     return false;
   }
@@ -58,6 +62,10 @@ export function shouldAutoRecoverSession(session: SlackSessionRecord, nowMs: num
   }
 
   return nowMs - updatedAtMs <= AUTO_RECOVERY_SESSION_LOOKBACK_MS;
+}
+
+export function isSlackPlatformSession(session: SlackSessionRecord): boolean {
+  return !session.key.startsWith("feishu:") && (session.platform === undefined || session.platform === "slack");
 }
 
 export function shouldForceResetStaleIdleRuntime(options: { readonly activeTurnId?: string | undefined; readonly runtimeProcessing: boolean; readonly latestOpenMessageUpdatedAt?: string | undefined; readonly nowMs: number; readonly staleAfterMs: number }): boolean {

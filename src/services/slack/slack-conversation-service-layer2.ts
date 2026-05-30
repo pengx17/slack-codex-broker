@@ -32,6 +32,7 @@ import {
   shouldPostSlackRunFailure,
   shouldNotifySlackFailure,
   shouldAutoRecoverSession,
+  isSlackPlatformSession,
 } from "./slack-conversation-utils.js";
 import { SlackInboundStore } from "./slack-inbound-store.js";
 import { formatSlackHistoryContextForAgent } from "./slack-message-format.js";
@@ -450,6 +451,7 @@ export class SlackConversationServiceLayer2 extends SlackConversationServiceLaye
   async privateRecoverPendingSessionsOnBoot(): Promise<void> {
     const sessions = this.privateSessions
       .listSessions()
+      .filter(isSlackPlatformSession)
       .filter((session) => !session.activeTurnId)
       .sort((left, right) => compareIsoTimestamp(right.updatedAt, left.updatedAt));
 
@@ -506,6 +508,7 @@ export class SlackConversationServiceLayer2 extends SlackConversationServiceLaye
     const nowMs = Date.now();
     const sessions = this.privateSessions
       .listSessions()
+      .filter(isSlackPlatformSession)
       .filter((session) => !session.activeTurnId)
       .sort((left, right) => compareIsoTimestamp(right.updatedAt, left.updatedAt));
 
@@ -563,7 +566,10 @@ export class SlackConversationServiceLayer2 extends SlackConversationServiceLaye
   }
 
   async privateRecoverPendingSyntheticMessages(): Promise<void> {
-    const sessions = this.privateSessions.listSessions().sort((left, right) => compareIsoTimestamp(right.updatedAt, left.updatedAt));
+    const sessions = this.privateSessions
+      .listSessions()
+      .filter(isSlackPlatformSession)
+      .sort((left, right) => compareIsoTimestamp(right.updatedAt, left.updatedAt));
 
     for (const session of sessions) {
       const pendingSyntheticMessages = this.privateSessions.listInboundMessages({

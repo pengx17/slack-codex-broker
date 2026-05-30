@@ -36,6 +36,7 @@ export class AppServerProcess {
   readonly #geminiHttpsProxy: string | undefined;
   readonly #geminiAllProxy: string | undefined;
   #child: ChildProcessByStdio<null, Readable, Readable> | undefined;
+  #startPromise: Promise<void> | undefined;
   #homePrepared = false;
 
   constructor(options: {
@@ -78,6 +79,23 @@ export class AppServerProcess {
       return;
     }
 
+    if (this.#startPromise) {
+      await this.#startPromise;
+      return;
+    }
+
+    const startPromise = this.#start();
+    this.#startPromise = startPromise;
+    try {
+      await startPromise;
+    } finally {
+      if (this.#startPromise === startPromise) {
+        this.#startPromise = undefined;
+      }
+    }
+  }
+
+  async #start(): Promise<void> {
     await this.#prepareCodexHome();
     await this.#bootstrapAuth();
     await this.#disableConfiguredMcpServers();

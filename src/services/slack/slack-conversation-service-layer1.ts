@@ -32,6 +32,7 @@ import {
   shouldPostSlackRunFailure,
   shouldNotifySlackFailure,
   shouldAutoRecoverSession,
+  isSlackPlatformSession,
 } from "./slack-conversation-utils.js";
 import { SlackInboundStore } from "./slack-inbound-store.js";
 import { formatSlackHistoryContextForAgent } from "./slack-message-format.js";
@@ -630,6 +631,7 @@ export class SlackConversationServiceLayer1 extends SlackConversationServiceBase
   async privateReconcilePersistedActiveTurns(): Promise<void> {
     const sessions = this.privateSessions
       .listSessions()
+      .filter(isSlackPlatformSession)
       .filter((session) => session.activeTurnId)
       .sort((left, right) => compareIsoTimestamp(right.updatedAt, left.updatedAt));
 
@@ -698,6 +700,7 @@ export class SlackConversationServiceLayer1 extends SlackConversationServiceBase
   async privateReconcileLiveActiveTurns(): Promise<void> {
     const sessions = this.privateSessions
       .listSessions()
+      .filter(isSlackPlatformSession)
       .filter((session) => session.activeTurnId)
       .sort((left, right) => compareIsoTimestamp(right.updatedAt, left.updatedAt));
 
@@ -754,6 +757,7 @@ export class SlackConversationServiceLayer1 extends SlackConversationServiceBase
 
     const sessions = this.privateSessions
       .listSessions()
+      .filter(isSlackPlatformSession)
       .filter((session) => shouldAutoRecoverSession(session, now))
       .sort((left, right) => compareIsoTimestamp(right.updatedAt, left.updatedAt));
 

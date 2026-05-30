@@ -11,6 +11,7 @@ import { type ParsedSlackEvent, isSlackMessageEffectivelyEmpty, parseSlackEvent 
 import { SlackApi } from "./slack-api.js";
 import { SlackCoauthorService } from "./slack-coauthor-service.js";
 import { SlackConversationService } from "./slack-conversation-service.js";
+import { isSlackPlatformSession } from "./slack-conversation-utils.js";
 import { SlackSelfMessageFilter } from "./slack-self-filter.js";
 import { SlackSocketModeClient } from "./socket-mode-client.js";
 
@@ -624,6 +625,10 @@ export class SlackAgentBridge {
   async #backfillSessionChannelMetadata(reason: string): Promise<void> {
     const sessionsByChannel = new Map<string, SlackSessionRecord[]>();
     for (const session of this.#sessions.listSessions()) {
+      if (!isSlackPlatformSession(session)) {
+        continue;
+      }
+
       if (session.channelName && session.channelType) {
         continue;
       }
