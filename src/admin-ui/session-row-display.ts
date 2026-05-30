@@ -17,6 +17,13 @@ export interface SessionQueueState {
   readonly detail: string;
 }
 
+export interface SessionWorkIndicator {
+  readonly value: string;
+  readonly detail: string;
+  readonly tone: string;
+  readonly title: string;
+}
+
 export function shouldShowSessionState(state: { readonly rank: number }): boolean {
   return state.rank > 10;
 }
@@ -67,13 +74,14 @@ export function sessionQueueState(session: SessionRecord, authProfile?: SessionR
     return { label: "账号待切换", tone: "danger", rank: 70, detail: String(session.authBlockReasonLabel || session.authBlockReason || "账号不可用") };
   }
   if (Number(session.openHumanInboundCount || 0) > 0) {
-    return { label: "待处理", tone: "warn", rank: 50, detail: session.openHumanInboundCount + " 条用户消息" };
+    return { label: "待处理", tone: "warn", rank: 50, detail: session.openHumanInboundCount + " 条未处理用户消息" };
   }
   if (Number(session.openInboundCount || 0) > 0) {
-    return { label: "待处理", tone: "warn", rank: 40, detail: session.openInboundCount + " 条系统消息" };
+    return { label: "待处理", tone: "warn", rank: 40, detail: session.openInboundCount + " 条未处理系统消息" };
   }
   if (session.activeTurnId) {
-    return { label: "运行中", tone: "good", rank: 30, detail: shortValue(session.activeTurnId, 18) };
+    const indicator = sessionWorkIndicator(session);
+    return { label: "处理中", tone: "good", rank: 30, detail: indicator?.detail ?? shortValue(session.activeTurnId, 18) };
   }
   const activeJobCount = activeBackgroundJobCount(session);
   if (activeJobCount > 0) {
@@ -83,6 +91,37 @@ export function sessionQueueState(session: SessionRecord, authProfile?: SessionR
     return { label: "有记录", tone: "info", rank: 10, detail: formatSessionTokens(session.usage?.totalTokens || 0) };
   }
   return { label: "空闲", tone: "", rank: 0, detail: "" };
+}
+
+export function sessionWorkIndicator(session: SessionRecord): SessionWorkIndicator | null {
+  if (!session.activeTurnId) {
+    return null;
+  }
+
+  const turnId = shortValue(session.activeTurnId, 18);
+  const platform = String(session.platform || "slack");
+  if (platform === "feishu") {
+    return {
+      value: "飞书状态卡",
+      detail: `状态卡 / 消息更新 · ${turnId}`,
+      tone: "good",
+      title: "Feishu native typing is not assumed; dashboard parity is the visible state card or message update for the active turn.",
+    };
+  }
+  if (platform === "slack") {
+    return {
+      value: "Slack 状态",
+      detail: `assistant status / eyes fallback · ${turnId}`,
+      tone: "good",
+      title: "Slack active turns expose work status through assistant.threads.setStatus, with eyes reaction fallback when the API is unavailable.",
+    };
+  }
+  return {
+    value: "处理中",
+    detail: turnId,
+    tone: "good",
+    title: "Active broker turn",
+  };
 }
 
 export function sessionAuthBlockActive(session: SessionRecord, authProfile?: SessionRecord | null | undefined): boolean {

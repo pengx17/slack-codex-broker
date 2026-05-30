@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { AppServerClient } from "../../src/services/codex/app-server-client.js";
@@ -21,6 +22,7 @@ interface CliOptions {
 interface CodingSmokeReport {
   readonly ok: boolean;
   readonly workspacePath: string;
+  readonly workspaceRetained: boolean;
   readonly expectedContent: string;
   readonly actualContent: string | null;
   readonly finalMessage: string;
@@ -51,6 +53,7 @@ async function main(): Promise<void> {
     brokerHttpBaseUrl: "http://127.0.0.1:3300",
     codexHome,
     port: 4601,
+    openAiApiKey: process.env.OPENAI_API_KEY,
     authJsonPath: path.join(os.homedir(), ".codex", "auth.json"),
   });
   const client = new AppServerClient({
@@ -85,22 +88,24 @@ async function main(): Promise<void> {
     const ok = actualContent.trim() === EXPECTED_CONTENT && check.ok;
     report = {
       ok,
-      workspacePath,
+      workspacePath: formatCodingSmokeWorkspacePath(workspacePath),
+      workspaceRetained: !ok || options.keepWorkspace,
       expectedContent: EXPECTED_CONTENT,
       actualContent,
       finalMessage: result.finalMessage,
       checkStdout: check.stdout,
-      error: check.error,
+      error: check.error ? sanitizeCodingSmokeReportText(check.error) : undefined,
     };
   } catch (error) {
     report = {
       ok: false,
-      workspacePath,
+      workspacePath: formatCodingSmokeWorkspacePath(workspacePath),
+      workspaceRetained: true,
       expectedContent: EXPECTED_CONTENT,
       actualContent: await readTarget(workspacePath).catch(() => null),
       finalMessage: "",
       checkStdout: "",
-      error: formatError(error),
+      error: sanitizeCodingSmokeReportText(formatError(error)),
     };
   } finally {
     await client.close();
@@ -262,6 +267,7 @@ function printReport(report: CodingSmokeReport, json: boolean): void {
 
   console.log(`Real Codex coding smoke: ${report.ok ? "ok" : "failed"}`);
   console.log(`workspace: ${report.workspacePath}`);
+  if (report.workspaceRetained) console.log("workspace retained: true");
   console.log(`expected: ${report.expectedContent}`);
   console.log(`actual: ${report.actualContent ?? "missing"}`);
   if (report.checkStdout) console.log(`check: ${report.checkStdout}`);
@@ -272,7 +278,17 @@ function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-void main().catch((error) => {
-  console.error(formatError(error));
-  process.exitCode = 1;
-});
+export function formatCodingSmokeWorkspacePath(workspacePath: string): string {
+  return `${path.basename(path.dirname(workspacePath))}/${path.basename(workspacePath)}`;
+}
+
+export function sanitizeCodingSmokeReportText(value: string): string {
+  return value.replace(/(["'])(\/[^"']+)\1/gu, (_match, quote: string, filePath: string) => `${quote}${path.basename(filePath)}${quote}`).replace(/(^|[\s=])\/(?!\/)([^\s'"]+)/gu, (_match, prefix: string, filePathTail: string) => `${prefix}${path.basename(`/${filePathTail}`)}`);
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  void main().catch((error) => {
+    console.error(sanitizeCodingSmokeReportText(formatError(error)));
+    process.exitCode = 1;
+  });
+}

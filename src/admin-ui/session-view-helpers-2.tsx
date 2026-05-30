@@ -10,7 +10,7 @@ import { requestCancelSessionJob } from "./session-job-actions";
 
 import { stableSessionOrder } from "./session-order";
 
-import { activeBackgroundJobCount, activeBackgroundJobs, buildChannelLabelById, renderSessionMeta, resolveSessionChannelLabel, sessionActivityAt, sessionActivityMs, sessionAuthBlockActive, sessionQueueState, shouldShowSessionState } from "./session-row-display";
+import { activeBackgroundJobCount, activeBackgroundJobs, buildChannelLabelById, renderSessionMeta, resolveSessionChannelLabel, sessionActivityAt, sessionActivityMs, sessionAuthBlockActive, sessionQueueState, sessionWorkIndicator, shouldShowSessionState } from "./session-row-display";
 
 import type { SessionQueueState } from "./session-row-display";
 
@@ -313,13 +313,15 @@ export function SessionRuntimePanel({
   readonly totalJobs: number;
   readonly runningJobs: number;
 }): React.JSX.Element {
+  const workIndicator = sessionWorkIndicator(session);
   const rows = [
-    session.activeTurnId
+    workIndicator
       ? {
-          label: "回合",
-          value: "运行中",
-          detail: shortValue(session.activeTurnId, 18),
-          tone: "good",
+          label: "工作状态",
+          value: workIndicator.value,
+          detail: workIndicator.detail,
+          title: workIndicator.title,
+          tone: workIndicator.tone,
         }
       : null,
     shouldShowSessionState(state)
@@ -346,7 +348,7 @@ export function SessionRuntimePanel({
           tone: "good",
         }
       : null,
-  ].filter((row): row is { label: string; value: string; detail?: string; tone?: string } => Boolean(row));
+  ].filter((row): row is { label: string; value: string; detail?: string; title?: string; tone?: string } => Boolean(row));
   if (!rows.length) return <></>;
   return (
     <div className="mini-panel">
@@ -354,7 +356,7 @@ export function SessionRuntimePanel({
       <div className="mini-body">
         <div className="meta-list">
           {rows.map((row) => (
-            <MetaLine key={row.label} label={row.label} value={row.value} detail={row.detail} tone={row.tone} />
+            <MetaLine key={row.label} label={row.label} value={row.value} detail={row.detail} title={row.title} tone={row.tone} />
           ))}
         </div>
       </div>
