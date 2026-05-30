@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { activeBackgroundJobCount, renderSessionMeta, sessionActivityAt, sessionQueueState, sessionWorkIndicator, shouldShowSessionState } from "../src/admin-ui/session-row-display.js";
+import { activeBackgroundJobCount, renderSessionMeta, sessionActivityAt, sessionInboundIndicator, sessionQueueState, sessionWorkIndicator, shouldShowSessionState } from "../src/admin-ui/session-row-display.js";
 
 import { requestCancelSessionJob } from "../src/admin-ui/session-job-actions.js";
 
@@ -115,6 +115,7 @@ describe("admin session row display", () => {
     const labels = meta.map((item) => item.label);
 
     expect(labels).toContain("#deep-review");
+    expect(labels).toContain("未读/待处理 1 条");
     expect(labels).toContain("Jobs 1");
     expect(labels).not.toContain("Jobs 2");
     expect(shouldShowSessionState({ rank: 50 })).toBe(true);
@@ -201,6 +202,35 @@ describe("admin session row display", () => {
       detail: "1 条未处理用户消息",
     });
     expect(state.label).not.toContain("待人处理");
+  });
+
+  it("exposes broker open-inbound as the product read/unread signal", () => {
+    const slack = sessionInboundIndicator({
+      platform: "slack",
+      openInboundCount: 2,
+      openHumanInboundCount: 1,
+      openSystemInboundCount: 1,
+    });
+    const feishu = sessionInboundIndicator({
+      platform: "feishu",
+      openInboundCount: 1,
+      openHumanInboundCount: 1,
+      openSystemInboundCount: 0,
+    });
+
+    expect(slack).toMatchObject({
+      value: "2 条",
+      detail: "用户 1 / 系统 1",
+      tone: "warn",
+      title: expect.stringContaining("Slack thread/channel broker open-inbound state"),
+    });
+    expect(feishu).toMatchObject({
+      value: "1 条",
+      detail: "用户 1 / 系统 0",
+      tone: "warn",
+      title: expect.stringContaining("Feishu group broker open-inbound state"),
+    });
+    expect(slack?.title).toContain("not a native client unread counter");
   });
 
   it("names platform-adapted work indicators for active Slack and Feishu turns", () => {

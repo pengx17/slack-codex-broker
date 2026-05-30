@@ -10,7 +10,7 @@ import { requestCancelSessionJob } from "./session-job-actions";
 
 import { stableSessionOrder } from "./session-order";
 
-import { activeBackgroundJobCount, activeBackgroundJobs, buildChannelLabelById, renderSessionMeta, resolveSessionChannelLabel, sessionActivityAt, sessionActivityMs, sessionAuthBlockActive, sessionQueueState, sessionWorkIndicator, shouldShowSessionState } from "./session-row-display";
+import { activeBackgroundJobCount, activeBackgroundJobs, buildChannelLabelById, renderSessionMeta, resolveSessionChannelLabel, sessionActivityAt, sessionActivityMs, sessionAuthBlockActive, sessionInboundIndicator, sessionQueueState, sessionWorkIndicator, shouldShowSessionState } from "./session-row-display";
 
 import type { SessionQueueState } from "./session-row-display";
 
@@ -314,6 +314,12 @@ export function SessionRuntimePanel({
   readonly runningJobs: number;
 }): React.JSX.Element {
   const workIndicator = sessionWorkIndicator(session);
+  const inboundIndicator = sessionInboundIndicator({
+    ...session,
+    openInboundCount: openInbound,
+    openHumanInboundCount: openHumanInbound,
+    openSystemInboundCount: openSystemInbound,
+  });
   const rows = [
     workIndicator
       ? {
@@ -332,12 +338,13 @@ export function SessionRuntimePanel({
           tone: state.tone,
         }
       : null,
-    openInbound > 0
+    inboundIndicator
       ? {
-          label: "待处理",
-          value: openInbound + " 条",
-          detail: "人 " + openHumanInbound + " / 系统 " + openSystemInbound,
-          tone: openHumanInbound > 0 ? "warn" : undefined,
+          label: "未读/待处理",
+          value: inboundIndicator.value,
+          detail: inboundIndicator.detail,
+          title: inboundIndicator.title,
+          tone: inboundIndicator.tone,
         }
       : null,
     runningJobs > 0

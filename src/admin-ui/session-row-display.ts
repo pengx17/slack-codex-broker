@@ -24,6 +24,13 @@ export interface SessionWorkIndicator {
   readonly title: string;
 }
 
+export interface SessionInboundIndicator {
+  readonly value: string;
+  readonly detail: string;
+  readonly tone: string;
+  readonly title: string;
+}
+
 export function shouldShowSessionState(state: { readonly rank: number }): boolean {
   return state.rank > 10;
 }
@@ -47,7 +54,7 @@ export function resolveSessionChannelLabel(session: SessionRecord, channelLabelB
 
 export function renderSessionMeta(session: SessionRecord, authProfileByName: ReadonlyMap<string, SessionRecord>, channelLabelById?: ReadonlyMap<string, string>): SessionMetaPill[] {
   const usage = session.usage || {};
-  const pendingDetail = Number(session.openInboundCount || 0) ? "待处理 " + (session.openInboundCount || 0) + "（人 " + (session.openHumanInboundCount || 0) + " / 系统 " + (session.openSystemInboundCount || 0) + "）" : "";
+  const inboundIndicator = sessionInboundIndicator(session);
   const authProfile = session.authProfileName ? authProfileByName.get(String(session.authProfileName)) : null;
   const activeJobCount = activeBackgroundJobCount(session);
   const authBlockActive = sessionAuthBlockActive(session, authProfile);
@@ -63,7 +70,7 @@ export function renderSessionMeta(session: SessionRecord, authProfileByName: Rea
           title: authProfile ? profileTitle(authProfile) : String(session.authProfileName),
         }
       : null,
-    pendingDetail ? { key: "pending", label: pendingDetail, tone: Number(session.openHumanInboundCount || 0) ? "warn" : "" } : null,
+    inboundIndicator ? { key: "pending", label: "未读/待处理 " + inboundIndicator.value, tone: inboundIndicator.tone, title: inboundIndicator.title + " · " + inboundIndicator.detail } : null,
     activeJobCount > 0 ? { key: "jobs", label: "Jobs " + activeJobCount, tone: "good" } : null,
     { key: "tokens", label: "Token " + formatSessionTokens(usage.totalTokens || 0), tone: "info" },
   ].filter((item): item is SessionMetaPill => Boolean(item));
@@ -121,6 +128,24 @@ export function sessionWorkIndicator(session: SessionRecord): SessionWorkIndicat
     detail: turnId,
     tone: "good",
     title: "Active broker turn",
+  };
+}
+
+export function sessionInboundIndicator(session: SessionRecord): SessionInboundIndicator | null {
+  const openInbound = Math.max(0, Number(session.openInboundCount || 0));
+  if (openInbound <= 0) {
+    return null;
+  }
+
+  const openHumanInbound = Math.max(0, Number(session.openHumanInboundCount || 0));
+  const openSystemInbound = Math.max(0, Number(session.openSystemInboundCount || Math.max(0, openInbound - openHumanInbound)));
+  const platform = String(session.platform || "slack");
+  const platformSurface = platform === "feishu" ? "Feishu group" : platform === "slack" ? "Slack thread/channel" : "chat surface";
+  return {
+    value: openInbound + " 条",
+    detail: "用户 " + openHumanInbound + " / 系统 " + openSystemInbound,
+    tone: openHumanInbound > 0 ? "warn" : "info",
+    title: `${platformSurface} broker open-inbound state; this is the product read/unread signal, not a native client unread counter.`,
   };
 }
 

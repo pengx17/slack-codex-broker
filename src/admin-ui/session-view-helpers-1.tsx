@@ -10,7 +10,7 @@ import { requestCancelSessionJob } from "./session-job-actions";
 
 import { stableSessionOrder } from "./session-order";
 
-import { activeBackgroundJobCount, activeBackgroundJobs, buildChannelLabelById, renderSessionMeta, resolveSessionChannelLabel, sessionActivityAt, sessionActivityMs, sessionAuthBlockActive, sessionQueueState, shouldShowSessionState } from "./session-row-display";
+import { activeBackgroundJobCount, activeBackgroundJobs, buildChannelLabelById, renderSessionMeta, resolveSessionChannelLabel, sessionActivityAt, sessionActivityMs, sessionAuthBlockActive, sessionInboundIndicator, sessionQueueState, shouldShowSessionState } from "./session-row-display";
 
 import type { SessionQueueState } from "./session-row-display";
 
@@ -244,7 +244,20 @@ export function SessionDetail({ session: providedSession, isPermalink = false }:
   const hasMessagesOrJobs = openInbound > 0 || runningJobs > 0;
   return (
     <>
-      <AgentSessionHero title={primary} request={first} state={state} channelLabel={channelLabel} activityAt={activityAt} usage={usage} openInbound={openInbound} runningJobs={runningJobs} totalJobs={totalJobs} />
+      <AgentSessionHero
+        title={primary}
+        request={first}
+        state={state}
+        channelLabel={channelLabel}
+        activityAt={activityAt}
+        usage={usage}
+        openInbound={openInbound}
+        openHumanInbound={openHumanInbound}
+        openSystemInbound={openSystemInbound}
+        platform={String(session.platform || "slack")}
+        runningJobs={runningJobs}
+        totalJobs={totalJobs}
+      />
       <div className="session-body">
         <div className="session-inspector">
           <div className="mini-panel trace-panel session-timeline-panel">
@@ -303,6 +316,9 @@ export function AgentSessionHero({
   activityAt,
   usage,
   openInbound,
+  openHumanInbound,
+  openSystemInbound,
+  platform,
   runningJobs,
   totalJobs,
 }: {
@@ -313,17 +329,21 @@ export function AgentSessionHero({
   readonly activityAt: unknown;
   readonly usage: Record<string, any>;
   readonly openInbound: number;
+  readonly openHumanInbound: number;
+  readonly openSystemInbound: number;
+  readonly platform: string;
   readonly runningJobs: number;
   readonly totalJobs: number;
 }): React.JSX.Element {
   const tokenCount = Number(usage?.totalTokens || 0);
+  const inboundIndicator = sessionInboundIndicator({ openInboundCount: openInbound, openHumanInboundCount: openHumanInbound, openSystemInboundCount: openSystemInbound, platform });
   const visibleState = shouldShowSessionState(state) ? { label: state.label, tone: state.tone, title: state.detail } : { label: "空闲", tone: "", title: "当前没有待处理输入或运行任务" };
   const stats = [
     { label: "频道", value: channelLabel, title: channelLabel },
     { label: "最近", value: fmtRelativeTime(activityAt), detail: fmtDateTime(activityAt), title: fmtDateTime(activityAt) },
     tokenCount > 0 ? { label: "Token", value: fmtTokens(tokenCount), detail: Number(usage?.turnCount || 0) + " 回合" } : null,
     runningJobs > 0 ? { label: "任务", value: runningJobs + " 运行", detail: totalJobs > runningJobs ? "历史共 " + totalJobs : undefined, tone: "good" } : null,
-    openInbound > 0 ? { label: "待处理", value: openInbound + " 条", tone: "warn" } : null,
+    inboundIndicator ? { label: "未读/待处理", value: inboundIndicator.value, title: inboundIndicator.title, tone: inboundIndicator.tone } : null,
   ].filter((item): item is { label: string; value: string; detail?: string; tone?: string; title?: string } => Boolean(item));
 
   return (
