@@ -70,9 +70,14 @@ three parallel workstreams:
 Current verdict:
 
 - The product and architecture direction is long-running-task ready.
+- The shared projection, Feishu updateable status card, artifact projection,
+  shared self-regression runner, and dashboard work/open-inbound parity slices
+  are implemented in PR #73.
 - Slack self-regression can become mostly auto-driven because a real test
   channel and Slack user/bot/app credentials can produce controlled inbound and
-  outbound evidence.
+  outbound evidence. Current Slack drive is blocked by the supplied user-token
+  scope posture: the runner can resolve the test channel but cannot post the
+  controlled user message.
 - Feishu self-regression is not fully unattended with app-only bot credentials:
   the app can observe and reply, but it cannot impersonate a human group member
   to create the required `@bot` and non-`@` inbound messages. Feishu needs either
@@ -97,24 +102,24 @@ Current verdict:
 
 ## Acceptance gates
 
-- [ ] `pnpm test` passes.
-- [ ] `pnpm rfc:feishu-audit -- --json` passes after any audit criteria changes.
-- [ ] `pnpm rfc:feishu-test-plan -- --json` passes after test-plan updates.
-- [ ] The implementation PR includes a shared-vs-platform boundary map.
-- [ ] No new platform-generic behavior is exposed only through a Slack-named
+- [x] `pnpm test` passes.
+- [x] `pnpm rfc:feishu-audit -- --json` passes after any audit criteria changes.
+- [x] `pnpm rfc:feishu-test-plan -- --json` passes after test-plan updates.
+- [x] The implementation PR includes a shared-vs-platform boundary map.
+- [x] No new platform-generic behavior is exposed only through a Slack-named
       method.
-- [ ] Any shared helper touched by Slack has Slack regression coverage.
-- [ ] Automated self-regression commands are documented and wired for local
+- [x] Any shared helper touched by Slack has Slack regression coverage.
+- [x] Automated self-regression commands are documented and wired for local
       preflight, saved-evidence replay, and platform drive where credentials
       allow it.
-- [ ] Self-regression reports are sanitized, replayable, and safe to attach to a
+- [x] Self-regression reports are sanitized, replayable, and safe to attach to a
       PR without leaking tokens, raw message bodies, user emails, raw bot IDs, or
       host filesystem paths.
 - [ ] Slack self-regression evidence bundle is present for the current Slack
       auth/app installation.
 - [ ] Feishu self-regression evidence bundle is present for the current China
       Feishu self-built app installation.
-- [ ] Feishu mock tests cover active status card lifecycle, patch debounce,
+- [x] Feishu mock tests cover active status card lifecycle, patch debounce,
       patch ordering, final state, failure state, and file/artifact display.
 - [ ] Real tenant smoke evidence bundle is present.
 
@@ -189,20 +194,20 @@ behavior is still uneven:
 
 ## Convergence rules
 
-- [ ] New Feishu behavior starts behind `ChatPlatformAdapter` or a
+- [x] New Feishu behavior starts behind `ChatPlatformAdapter` or a
       `src/services/chat/` intent type whenever the behavior is not inherently
       Feishu-specific.
-- [ ] Feishu-native card JSON stays in `src/services/feishu/`, but the data that
+- [x] Feishu-native card JSON stays in `src/services/feishu/`, but the data that
       feeds it should be a shared `ChatTurnProjection`-style model.
-- [ ] If Feishu needs logic that Slack already has in `SlackTurnRunner` or
+- [x] If Feishu needs logic that Slack already has in `SlackTurnRunner` or
       `SlackConversationService`, first decide whether the shared concept should
       move to `src/services/chat/` instead of copying the Slack implementation.
-- [ ] No new Slack-named API should be added for behavior that is already
+- [x] No new Slack-named API should be added for behavior that is already
       platform-generic. Existing Slack-named compatibility methods may remain
       until a later cleanup.
-- [ ] Any extraction that touches Slack must include Slack regression tests;
+- [x] Any extraction that touches Slack must include Slack regression tests;
       Feishu product work must not silently change Slack UX.
-- [ ] Platform-specific branches need a short reason: native capability, API
+- [x] Platform-specific branches need a short reason: native capability, API
       limitation, permission model, or product difference.
 
 </details>
@@ -223,23 +228,23 @@ Implementation targets:
 
 Checklist:
 
-- [ ] Identify the minimum shared model for turn state, output projection, file
+- [x] Identify the minimum shared model for turn state, output projection, file
       intent, delivery ordering, and recovery outcome.
-- [ ] Keep native rendering out of the shared layer: Slack blocks and Feishu card
+- [x] Keep native rendering out of the shared layer: Slack blocks and Feishu card
       JSON remain adapter concerns.
-- [ ] Prefer additive shared helpers over renaming large Slack classes in this
+- [x] Prefer additive shared helpers over renaming large Slack classes in this
       RFC; broad class renames can wait for a cleanup-only PR.
-- [ ] Replace or wrap any new Slack-named API with a chat-platform-neutral name.
-- [ ] Add one cross-platform test that proves the same logical turn projection
+- [x] Replace or wrap any new Slack-named API with a chat-platform-neutral name.
+- [x] Add one cross-platform test that proves the same logical turn projection
       can render into Slack and Feishu without sharing native renderer code.
 
 Acceptance:
 
-- [ ] RFC 0002 implementation has an explicit shared-vs-platform map in its PR
+- [x] RFC 0002 implementation has an explicit shared-vs-platform map in its PR
       summary.
-- [ ] New Feishu status/projection tests exercise shared intent objects, not only
+- [x] New Feishu status/projection tests exercise shared intent objects, not only
       Feishu card JSON.
-- [ ] Slack regression tests cover any extracted helper used by Slack.
+- [x] Slack regression tests cover any extracted helper used by Slack.
 
 ## Slice 1: Feishu updateable card API
 
@@ -252,21 +257,21 @@ Implementation targets:
 
 Checklist:
 
-- [ ] Add Feishu API coverage for card/message update or patch endpoints.
-- [ ] Model update failure modes explicitly: missing message id, expired card,
+- [x] Add Feishu API coverage for card/message update or patch endpoints.
+- [x] Model update failure modes explicitly: missing message id, expired card,
       permission failure, and retryable transport failure.
-- [ ] Add adapter method such as `updateThreadState` / `updateCard` without
+- [x] Add adapter method such as `updateThreadState` / `updateCard` without
       leaking Feishu endpoint details into the bridge.
-- [ ] Keep patch/update endpoint selection Feishu-local, but expose only a
+- [x] Keep patch/update endpoint selection Feishu-local, but expose only a
       logical chat state/projection update to shared callers.
-- [ ] Preserve current send-message and callback behavior.
+- [x] Preserve current send-message and callback behavior.
 
 Acceptance:
 
-- [ ] Unit tests prove the request body, auth headers, and error mapping for
+- [x] Unit tests prove the request body, auth headers, and error mapping for
       update/patch calls.
-- [ ] Existing Feishu send-message tests still pass.
-- [ ] Slack tests are unchanged and green.
+- [x] Existing Feishu send-message tests still pass.
+- [x] Slack tests are unchanged and green.
 
 ## Slice 2: Feishu turn status card
 
@@ -279,16 +284,16 @@ Implementation targets:
 
 Checklist:
 
-- [ ] Create an initial active-turn card when Feishu starts or resumes a Codex
+- [x] Create an initial active-turn card when Feishu starts or resumes a Codex
       turn.
-- [ ] Patch that card as the turn moves through queued/thinking/tool/final/error
+- [x] Patch that card as the turn moves through queued/thinking/tool/final/error
       states.
-- [ ] Represent `waiting for user`, `blocked`, and `stop requested` distinctly.
-- [ ] Keep the final answer readable in the group even if card patching fails.
+- [x] Represent `waiting for user`, `blocked`, and `stop requested` distinctly.
+- [x] Keep the final answer readable in the group even if card patching fails.
 
 Acceptance:
 
-- [ ] Mock Feishu tests observe the card state lifecycle for success, failure,
+- [x] Mock Feishu tests observe the card state lifecycle for success, failure,
       and stop.
 - [ ] Real smoke evidence records at least one active card update and final card
       state.
@@ -303,22 +308,22 @@ Implementation targets:
 
 Checklist:
 
-- [ ] Convert app-server events into stable Feishu presentation slots.
-- [ ] Represent those slots as a platform-neutral projection before rendering
+- [x] Convert app-server events into stable Feishu presentation slots.
+- [x] Represent those slots as a platform-neutral projection before rendering
       Feishu card JSON.
-- [ ] Hash rendered slot content and skip no-op card patches.
-- [ ] Debounce rapid partial updates.
-- [ ] Serialize patch operations per active Feishu card.
-- [ ] Fold verbose tool details behind card sections rather than dumping every
+- [x] Hash rendered slot content and skip no-op card patches.
+- [x] Debounce rapid partial updates.
+- [x] Serialize patch operations per active Feishu card.
+- [x] Fold verbose tool details behind card sections rather than dumping every
       detail into the main group message.
 
 Acceptance:
 
-- [ ] Tests cover rapid commentary/tool/final sequences without duplicate
+- [x] Tests cover rapid commentary/tool/final sequences without duplicate
       patches.
-- [ ] Tests cover out-of-order async patch completion without regressing the
+- [x] Tests cover out-of-order async patch completion without regressing the
       final visible state.
-- [ ] At least one test proves the projection model is independent from Feishu
+- [x] At least one test proves the projection model is independent from Feishu
       card JSON.
 
 ## Slice 4: File and artifact publishing UX
@@ -332,15 +337,15 @@ Implementation targets:
 
 Checklist:
 
-- [ ] Keep a platform-generic helper path for posting files from Codex output.
-- [ ] Render uploaded files/artifacts as card sections or stable message links.
-- [ ] Record file evidence in smoke output without logging sensitive content.
-- [ ] Avoid duplicating Slack file routing semantics inside Feishu bridge code;
+- [x] Keep a platform-generic helper path for posting files from Codex output.
+- [x] Render uploaded files/artifacts as card sections or stable message links.
+- [x] Record file evidence in smoke output without logging sensitive content.
+- [x] Avoid duplicating Slack file routing semantics inside Feishu bridge code;
       use a shared file intent where possible.
 
 Acceptance:
 
-- [ ] Mock test proves Feishu file upload and card/link rendering.
+- [x] Mock test proves Feishu file upload and card/link rendering.
 - [ ] Real smoke captures file/artifact evidence when credentials and tenant
       permissions are available.
 
@@ -353,19 +358,19 @@ Implementation targets:
 
 Checklist:
 
-- [ ] Document which steps CLI can assist: app creation metadata, config checks,
+- [x] Document which steps CLI can assist: app creation metadata, config checks,
       local preflight, smoke evidence template.
-- [ ] Document which steps remain manual: sensitive permission approval,
+- [x] Document which steps remain manual: sensitive permission approval,
       app publish/release, tenant install, adding bot to group.
-- [ ] Include the exact permission rationale for `im:message.group_msg` and
+- [x] Include the exact permission rationale for `im:message.group_msg` and
       card action callbacks.
-- [ ] Keep secret handling out of git-tracked examples.
+- [x] Keep secret handling out of git-tracked examples.
 
 Acceptance:
 
-- [ ] A new operator can identify the next manual gate without reading chat
+- [x] A new operator can identify the next manual gate without reading chat
       history.
-- [ ] The runbook maps directly to smoke/audit evidence fields.
+- [x] The runbook maps directly to smoke/audit evidence fields.
 
 </details>
 
@@ -405,25 +410,25 @@ observe mode after the manual group actions until then.
 
 Automation rules:
 
-- [ ] The runner must load secrets only from local env files, process env, or
+- [x] The runner must load secrets only from local env files, process env, or
       operator memory. It must never require tokens in git-tracked fixtures.
-- [ ] The Slack driver must use a configured test channel, not an arbitrary
+- [x] The Slack driver must use a configured test channel, not an arbitrary
       production channel. The current local channel is private operator
       configuration, not an RFC constant.
 - [ ] Slack auto-drive must create a controlled inbound message, observe the
       broker reply/state update, exercise `/chat/post-file`, and write a
       sanitized evidence bundle.
-- [ ] Slack auto-drive must fail closed with the Slack API `needed`/`provided`
+- [x] Slack auto-drive must fail closed with the Slack API `needed`/`provided`
       scope posture when the configured token cannot post the controlled user
       message.
-- [ ] Feishu observe mode may be accepted as interim evidence only if it clearly
+- [x] Feishu observe mode may be accepted as interim evidence only if it clearly
       says which human/browser action produced the inbound event.
-- [ ] Feishu auto-drive requires a separate driver design. A bot sending a
+- [x] Feishu auto-drive requires a separate driver design. A bot sending a
       message to itself does not prove user inbound, active follow-up, or
       self-sender filtering.
-- [ ] Saved evidence replay must fail closed when required checks are missing,
+- [x] Saved evidence replay must fail closed when required checks are missing,
       stale, unsafe, or only implied by broad admin health.
-- [ ] Every evidence bundle must include a manifest with platform, mode
+- [x] Every evidence bundle must include a manifest with platform, mode
       (`preflight`, `observe`, `drive`, or `replay`), checkedAt, command,
       sanitized source files, and pass/fail checks.
 
